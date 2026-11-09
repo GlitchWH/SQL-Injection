@@ -1,0 +1,122 @@
+# Lab 1: SQL Injection in WHERE Clause (Hidden Data)
+
+## WHAT THIS LAB IS ABOUT
+
+A shopping website shows products by category. When you click a category, the website takes that category name
+and puts it straight into a SQL query to fetch products from the database. The website does not check or clean this input,
+so we can change the query by typing special characters.
+
+### Goal: make the website show products that are not released yet.
+
+## HOW THE WEBSITE NORMALLY WORKS
+
+When a user clicks the Gifts category, the browser sends a request with category equal to Gifts.
+
+The website then runs this query:
+
+SELECT * FROM products WHERE category = ‘Gifts’ AND released = 1
+
+### This means:
+
+get all columns
+from the products table
+only rows where category is Gifts
+and only rows where released equals 1
+
+Products that are not released have released equal to 0, so normally they stay hidden.
+
+## WHAT IS THE PROBLEM
+
+The website has no protection against SQL injection. Whatever text we put in place of the category value goes directly into the query.
+So we can add our own SQL code through it.
+
+## THREE THINGS TO UNDERSTAND
+
+Single quote: In SQL, a single quote starts or ends a piece of text. If we add our own single quote,
+we end the text early, and anything after it is read as SQL code, not just text.
+Double dash: This is a comment symbol in SQL. Anything written after it on that line is ignored by the database.
+OR 1=1: The number 1 always equals 1, so this part is always true. When this is added with OR, the whole condition becomes true for every row in the table.
+
+## ATTACK 1: REMOVE THE RELEASED CHECK
+
+Instead of sending just Gifts as the category, we send Gifts followed by a single quote and two dashes.
+
+The query becomes:
+
+SELECT * FROM products WHERE category = ‘Gifts’--‘ AND released = 1
+
+The two dashes turn the rest of the line into a comment, so the part checking released equal to 1 is ignored completely.
+Now the website shows Gifts products whether they are released or not.
+
+## ATTACK 2: SHOW ALL PRODUCTS FROM ALL CATEGORIES
+
+Instead of just closing the quote, we send Gifts followed by a single quote, then OR 1 equals 1, then two dashes.
+
+The query becomes:
+
+SELECT * FROM products WHERE category = ‘Gifts’ OR 1=1--‘ AND released = 1
+
+Because 1 always equals 1, this condition is true for every single row in the table, no matter what category it belongs to.
+The two dashes again remove the released check. So the website shows every product from every category, released or not.
+
+Note: when this payload is sent through a web address, spaces are usually written as a plus sign, so OR shows up with plus signs
+around it instead of normal spaces. This is just how browsers write spaces inside addresses, the actual meaning is still a normal space.
+
+## HOW TO SOLVE IT MANUALLY
+
+Open the lab and click on any category.
+Look at the address bar, find the part that says category equals something.
+Change that value to: Gifts followed by a single quote, then OR 1 equals 1, then two dashes.
+Press enter. All products appear, and the lab marks itself as solved.
+
+
+## WHAT THIS SCRIPT DOES
+
+It imports the requests library, which lets Python send web requests, the same way a browser does.
+* It asks you to type or paste the lab’s address, and saves it as task_url. You are expected to paste the address
+already trimmed up to the word filter, as the comment above it says.
+* It builds the payload. The payload is the category value that will be sent: Gifts followed by a single quote,
+then OR 1 equals 1, then two dashes. This is stored inside a dictionary called params, under the key category.
+* It prints a message showing which address the payload is being sent to, just so you can see what is happening while the script runs.
+* It sends a request to the address you entered, using requests.get, and attaches the params to it.
+The requests library automatically turns the space into a plus sign or percent two zero, and turns the single quote into percent two seven, 
+so the address stays valid even though it has special characters in it.
+* It reads the response that comes back from the website, which is the actual page content.
+* It checks if the page contains the sentence that the lab displays when it has been solved. If that sentence is found,
+it prints a success message. If not, it prints a failure message.
+
+## WHY THIS VERSION WORKS WELL
+
+Asking for the address with input means you do not need to edit the code every time you start a new lab instance,
+you just paste the new address when the script asks for it.
+Keeping the payload inside params instead of writing it directly into the address keeps the code clean and avoids mistakes with encoding,
+since the library handles that part for you.
+
+## ONE THING TO KEEP IN MIND
+
+The comment above task_url tells you to trim the address till the word filter. This means when you copy the address from your browser,
+you should remove everything after filter, including any question mark or extra text, and paste only the part that ends with filter.
+
+## WHY THIS HAPPENS
+
+The website builds the query by joining plain text together, something like this in plain words: it takes the fixed starting part of the query,
+joins it with whatever the user typed, then joins the rest of the fixed query after it. Because of this joining, whatever the user types becomes
+part of the actual SQL instructions, not just a harmless piece of text.
+
+## HOW TO PREVENT THIS
+
+The fix is to use something called parameterized queries, also called prepared statements. With this method, the place for the user
+input is marked separately from the SQL instructions, and the database always treats that input as plain text, never as code, no matter
+what characters are inside it.
+
+Other good practices:
+
+Only allow known, expected values for things like category names.
+Give the database account used by the website the smallest possible permissions.
+Avoid building queries by joining text together manually.
+
+## KEY POINTS TO REMEMBER
+
+Never trust anything typed by a user.
+A single quote ends a text value early, two dashes turn the rest into a comment, and OR 1=1 makes a condition always true.
+Hiding data using a simple condition like released equal to 1 does not actually protect it if someone can change the query itself.
