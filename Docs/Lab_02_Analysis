@@ -1,0 +1,126 @@
+==================================================
+Lab 2: Subverting Application Logic (Login Bypass)
+=======================
+WHAT THIS LAB IS ABOUT
+
+An application lets users log in with a username and a password. When someone submits a username and password,
+the website checks them against the database using a SQL query. If the query finds a matching user, the login is
+allowed. If not, the login is rejected.
+
+Goal: log in as the administrator without knowing the administrator password.
+
+==============================
+HOW THE WEBSITE NORMALLY WORKS
+
+If a user submits the username wiener and the password bluecheese, the website runs this query:
+
+SELECT * FROM users WHERE username = ‘wiener’ AND password = ‘bluecheese’
+
+This means:
+
+get all columns
+from the users table
+only the row where username is wiener
+and only if password is bluecheese
+
+If a row is returned, the login is successful. If nothing is returned, the login fails.
+
+=======================
+WHAT IS THE PROBLEM
+
+The username and password are placed directly into the query without being checked or cleaned. This means we can
+use the same trick as before, using a single quote and two dashes, to change what the query actually checks.
+
+======================================
+THE ATTACK: BYPASS THE PASSWORD CHECK
+
+Instead of a real username, we send administrator followed by a single quote and two dashes, and we leave the
+password blank.
+
+The query becomes:
+
+SELECT * FROM users WHERE username = ‘administrator’--‘ AND password = ‘’
+
+The two dashes comment out everything after them, so the password check is completely removed. The query now
+only checks if the username is administrator. Since that user exists, the query returns their details, and we
+are logged in as administrator, without ever knowing their real password.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and go to the login page.
+In the username field, type: administrator followed by a single quote, then two dashes.
+Leave the password field empty, or type anything, it does not matter.
+Click the login button. You are now logged in as administrator, and the lab is marked as solved.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the re library, used for searching text patterns, and the requests library, used for sending web requests.
+
+A session is created at the start. A session remembers cookies between requests, the same way a browser keeps you
+logged in across pages. This matters here because the login form needs a token tied to that same session.
+
+It asks you to paste the address of the login page, and saves it as login_url.
+
+It sends a request to that login page and saves the page’s HTML content, so the script can read it.
+
+It searches that HTML for a hidden field called csrf, using a pattern match, and pulls out its value. This value
+is called a CSRF token.
+
+A CSRF token is a random value that websites generate for each visitor, to make sure form submissions are
+genuinely coming from their own pages and not from somewhere else. Without sending back the correct token, the
+login form submission would be rejected, so the script must grab this token first before trying to log in.
+
+If the token is found, the script prints it and continues. If it is not found, the script prints an error and
+stops completely.
+
+It builds the payload to submit. This includes the CSRF token it just found, the username set to administrator
+followed by a single quote and two dashes, and a password. In this script the password is set to admin12345,
+though in the actual attack the password value does not matter, since it gets removed from the query by the
+two dashes anyway.
+
+It sends this payload to the login page using a POST request, through the same session, so any cookies set
+during login are kept.
+
+It then builds the address of the home page by taking the login page address and replacing the word login with
+nothing, giving the site’s main address.
+
+It requests that home page using the same session, so it is viewed as the logged in administrator.
+
+Finally, it checks the home page content for the sentence the lab displays when solved. If found, it prints
+success. If not, it prints a failure message and suggests the lab link may have expired.
+
+=============================
+WHY THE SESSION MATTERS
+
+A normal requests.get call on its own does not remember cookies between separate calls. Using session instead
+means that once the login request succeeds and the website gives back a login cookie, that same cookie is
+automatically included in the next request to the home page. Without the session, the home page request would
+look like a fresh, logged out visitor, and the success check would fail even if the login itself worked.
+
+=============================
+WHY THIS HAPPENS
+
+The website builds the login query by joining the username and password directly into the query text. Since the
+input is never separated from the actual SQL instructions, a single quote and two dashes placed inside the
+username are enough to change the entire meaning of the query.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries, also called prepared statements, so the username and password are always treated as
+plain data, never as part of the SQL instructions, no matter what characters they contain.
+
+Other good practices:
+
+Never reveal through error messages whether a username exists or not.
+Apply rate limiting or account lockouts on repeated failed login attempts.
+Use proper password hashing and comparison on the server side.
+
+=============================
+KEY POINTS TO REMEMBER
+
+A single quote and two dashes can remove entire parts of a query, including password checks.
+This type of attack does not need to guess a password at all, it just needs to know or guess a valid username.
+A session keeps the login cookie between requests, which is necessary to check if the login actually worked.
