@@ -38,3 +38,4 @@ systems you do not own or have explicit permission to test.
 
 ## Author
 
+Waqas Hussain (GlitchWH)
