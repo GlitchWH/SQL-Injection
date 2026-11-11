@@ -1,0 +1,134 @@
+==================================================
+Lab 3: SQL Injection UNION Attack - Determining Number
+of Columns Returned by the Query
+=======================
+WHAT THIS LAB IS ABOUT
+
+A shopping website filters products by category, the same way as lab one. This time the goal is not just to
+remove a condition from the query, it is to use the injection to pull in extra results from a different query
+entirely, using something called a UNION attack. But before we can do that, we first need to find out exactly
+how many columns the original query is returning, because that is a requirement for a UNION attack to work at
+all.
+
+Goal: find out how many columns the original SQL query selects.
+
+==============================
+WHAT IS A UNION ATTACK
+
+A UNION attack lets an attacker combine the results of two separate SELECT queries into one single result. The
+original query the website runs fetches product details. With a UNION attack, we can make the database also run
+our own second query, and combine its output with the original results, so the extra data shows up on the same
+page.
+
+=======================================
+WHY WE NEED TO KNOW THE COLUMN COUNT
+
+For a UNION to work in SQL, both queries being combined must return the exact same number of columns. If the
+original query returns say three columns, and our injected query only returns two or four, the database will
+throw an error and refuse to run it. So before running any real UNION attack, we must first discover exactly how
+many columns the original query uses.
+
+=============================
+THE TECHNIQUE: USING NULL
+
+To find the column count, we repeatedly inject a UNION SELECT statement filled with the word NULL, written as
+many times as the number of columns we are testing for. NULL works for this because NULL can fit into any column
+type, whether it expects text, numbers, or dates. So instead of guessing actual data types, we just use NULL as a
+placeholder for every column.
+
+We start by testing with one NULL, then two NULLs, then three, and so on. Each time, if the number of NULLs does
+not match the real column count, the database will return an error and the page will not load normally, or the
+lab will not register as solved. Once the number of NULLs we send matches the actual number of columns in the
+original query, the database accepts the UNION, no error happens, and the lab recognizes this as solved.
+
+======================================
+WHAT THE PAYLOAD LOOKS LIKE
+
+For testing with three columns as an example, the category value sent would be: a valid category name, followed
+by a single quote, then the word UNION, then SELECT, then NULL comma NULL comma NULL, then two dashes.
+
+The two dashes at the end comment out anything that follows in the original query, the same trick used in the
+earlier labs.
+
+======================================
+WHY WE NEED A VALID CATEGORY NAME
+
+The category value we send still needs to start with a real, existing category name, such as Corporate gifts.
+This is because some database setups, including the one in this lab, only run the UNION part of the query if the
+first part of the WHERE condition can still succeed or at least be valid, depending on how the query is
+structured. Using a real category name keeps the first part of the query working normally, while our injected
+UNION part runs alongside it.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and go to a product category page.
+In the category value, submit a real category name, followed by a single quote, then UNION SELECT NULL--
+If that gives an error, increase the number of NULLs by one each time.
+Keep increasing the NULLs and resubmitting until no error appears, meaning you found the exact column count.
+Once the correct number of NULLs is found, the lab is marked as solved.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, used for sending web requests.
+
+A session is created so that cookies stay consistent across each test, the same way a browser would behave
+while reloading a page multiple times.
+
+It asks you to paste the category filter address, and saves it as filter_url.
+
+It sets valid_category to the text Corporate gifts, which is a real category name that exists in this lab, so
+the first part of the query keeps working while we test the UNION part.
+
+It then loops from one up to ten, trying column counts one at a time.
+
+On each loop, it builds a string of NULL values separated by commas, repeated as many times as the current
+number being tested. For example, on the third loop, this becomes NULL comma NULL comma NULL.
+
+It builds the full payload using the valid category name, a single quote, the word UNION SELECT, the NULL
+values just built, and two dashes at the end to comment out the rest of the original query.
+
+This payload is placed into the category parameter and sent to the website using the same session.
+
+It checks if the response contains the sentence the lab displays when solved. If it does, it prints a success
+message showing exactly how many columns were found, and stops the loop immediately using break.
+
+If none of the ten attempts succeed, the else part connected to the for loop runs, which prints a failure message
+suggesting the category name might be wrong or the lab link expired.
+
+=============================
+WHY THE FOR-ELSE STRUCTURE IS USED
+
+In Python, a for loop can have an else part attached to it. This else only runs if the loop finishes completely
+without ever hitting a break statement. Here, it is used so that the failure message only prints if none of the
+ten attempts worked, since a successful attempt always triggers break and skips the else part entirely.
+
+=============================
+WHY THIS HAPPENS
+
+The website still builds the query by joining the category input directly into the SQL text, the same
+underlying flaw as before. This time, instead of only changing the WHERE condition, the injected UNION SELECT
+is accepted as a second query that can be joined with the first, as long as the number of columns matches
+exactly.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so user input can never be interpreted as part of the SQL structure, including UNION
+statements.
+
+Other good practices:
+
+Disable detailed database error messages on production websites, since those errors are often what reveals
+column count and structure to an attacker during this kind of testing.
+Apply strict input validation so unexpected characters like quotes are rejected before ever reaching the query.
+
+=============================
+KEY POINTS TO REMEMBER
+
+A UNION attack requires both queries to return the exact same number of columns, or the database will reject it.
+NULL is used as a safe placeholder value because it can fit into any column type.
+Testing is usually done by trial and error, increasing the column count by one each time until no error appears.
+This step alone does not extract any real data yet, it only tells us how many columns the real query uses, which
+is needed before further UNION attacks can retrieve actual data
