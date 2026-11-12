@@ -1,0 +1,128 @@
+Lab 4: SQL Injection UNION Attack - Finding a Column
+Containing Text
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab continues from the previous one. The product category filter is still vulnerable, and the results of
+the query are shown back to us on the page. This time, instead of just counting columns, we need to find out
+which one of those columns can actually hold text, so later we can use that column to pull out real data such as
+usernames or passwords.
+
+The lab gives us a random value that we must make appear somewhere on the page. If we succeed in making that
+value show up, the lab considers it solved.
+
+Goal: find which column in the query can hold text, by making a given string show up in the page results.
+
+==============================
+WHY WE NEED TO FIND A TEXT COLUMN
+
+Not every column in a database table holds text. Some hold numbers, some hold dates, and some hold text. If we
+want to use a UNION attack to steal actual text data later, such as usernames or passwords, we need to place that
+text into a column that is capable of displaying text. If we try to place text into a column meant for numbers,
+the database will throw an error and the UNION will fail.
+
+So this lab is about testing each column one at a time, to see which one accepts a text value without causing an
+error.
+
+=============================
+THE TECHNIQUE USED HERE
+
+We already know the exact number of columns from the previous lab, because UNION attacks require both queries to
+return the same number of columns.
+
+Now, instead of filling every column with NULL, we fill all of them with NULL except one at a time. In that one
+column, we place our target text value instead. We then check if that value appears correctly on the page. If it
+does, we found a column that accepts text. If it causes an error or does not appear, we move the text to the
+next column and try again.
+
+======================================
+WHAT THE PAYLOAD LOOKS LIKE
+
+As an example, if there are three columns in total, and we are testing the second column, the payload would
+look like: a valid category name, followed by a single quote, then UNION SELECT, then NULL, then our target text
+surrounded by single quotes, then NULL again, then two dashes at the end.
+
+Only one column at a time holds the text value, the rest remain NULL, so we can tell exactly which column
+position is responsible if the value shows up.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and note the random target string the lab gives you.
+Using the number of columns found earlier, submit a UNION SELECT where all columns are NULL except the first
+one, which holds the target string in quotes.
+If the page does not show the lab solved message, move the target string to the next column instead, keeping the
+rest NULL.
+Repeat this for each column position until the target string appears and the lab is marked as solved.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, used for sending web requests.
+
+A session is created so cookies stay consistent across each test.
+
+It asks you to paste the filter address, and saves it as filter_url.
+
+It sets valid_category to the text Lifestyle, a real category name that exists in this lab, so the first part of
+the original query still works normally.
+
+It sets num_columns to three, which is the column count already discovered from the previous lab’s method.
+
+It sets target_string to the random value given by the lab. This value is different for each person, since the
+lab generates it uniquely per lab instance.
+
+It then loops through each column position, starting from position zero up to the last column.
+
+On each loop, it creates a list called row_layout, filled with the word NULL repeated once for every column.
+
+It then replaces only the current column position in that list with the target string wrapped in single quotes,
+leaving every other position as NULL.
+
+It builds the full payload using the valid category name, a single quote, UNION SELECT, the row_layout values
+joined together with commas, and two dashes at the end to comment out the rest of the original query.
+
+This payload is sent as the category parameter to the website through the same session.
+
+It checks if the response contains the sentence the lab shows when solved. If found, it prints a success
+message showing which column position accepted the text, adding one to the position since humans usually count
+columns starting from one instead of zero, and then stops the loop using break.
+
+If none of the column positions work, the else part connected to the loop runs, printing a failure message
+suggesting the column count or target string might be wrong.
+
+=============================
+WHY WE USE ZERO AS A STARTING POINT IN THE CODE
+
+In Python, counting usually starts from zero instead of one. So the first column in the list is considered
+position zero by the code, even though we normally call it column one when talking out loud. This is why the
+script adds one to the column position before printing it, so the message makes sense to a human reading it.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is the same as before, user input is joined directly into the SQL query. This time the
+UNION SELECT is being used not just to match column count, but to test which column can safely hold a text
+value without causing a database type mismatch error.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so that no part of user input can ever be interpreted as SQL structure, including
+UNION statements used for probing column types.
+
+Other good practices:
+
+Turn off detailed database error messages in production, since those errors reveal when a column type does not
+match, which is exactly what attackers use to map out the table structure.
+Apply strict input validation so attempts to inject quotes or SQL keywords are blocked before reaching the
+database.
+
+=============================
+KEY POINTS TO REMEMBER
+
+Not all columns can hold text, some are built only for numbers or dates.
+To find a text-compatible column, we test one column at a time with a text value while keeping the rest NULL.
+If a column cannot hold text, the database usually throws an error instead of returning normal results.
+This step builds directly on the column count found in the earlier lab, and it is often the next required step
+before extracting real data in future labs.
