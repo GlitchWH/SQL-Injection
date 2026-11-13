@@ -1,0 +1,146 @@
+==================================================
+Lab 6: SQL Injection UNION Attack - Retrieving Multiple
+Values in a Single Column
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab is similar to the previous one, but with one extra challenge. The query here returns two columns, but
+only one of them actually accepts text. In the last lab we had two text-friendly columns, so we could place
+username in one and password in the other. Here, only one column works for text, so both username and password
+need to be squeezed into that single column at the same time.
+
+Goal: use a UNION attack to retrieve all usernames and passwords, even though only one column can hold text, and
+then use the administrator’s credentials to actually log in.
+
+==============================
+WHY A NEW TRICK IS NEEDED HERE
+
+In the previous lab, two columns could both hold text, so username went into one column and password went into
+the other, like a neat two column table. In this lab, only one column is capable of holding text. If we try to
+place username in one column and password in another like before, the database throws an error on whichever
+column cannot hold text, and the whole UNION attack fails.
+
+So instead of spreading username and password across two separate columns, we need to combine them together
+into one single piece of text, then place that combined text into the one column that actually works.
+
+=============================
+THE TECHNIQUE: STRING CONCATENATION
+
+Joining two pieces of text together into one is called concatenation. Different databases use different symbols
+for this. In this lab, two vertical bar symbols written together, like this: ||, are used to join text.
+
+Using this, username and password can be joined into a single combined value. A separator character is placed in
+between them, so once we get the result back we can still tell where the username ends and the password begins.
+In this script, a tilde symbol, which looks like this: ~, is used as that separator.
+
+So instead of two separate columns of data, the result becomes one column containing something like:
+administrator followed by a tilde, followed by the administrator’s actual password.
+
+======================================
+WHAT THE PAYLOAD LOOKS LIKE
+
+The category value sent is: a single quote, then UNION SELECT, then NULL, comma, then username, two vertical
+bars, a tilde in single quotes, two more vertical bars, then password, then FROM users, then two dashes.
+
+The first column stays NULL since it cannot hold text. The second column holds the combined username and
+password text, joined together with a tilde in between, pulled directly from the users table.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and go to a product category page.
+Submit a single quote, then UNION SELECT NULL, username || ‘~’ || password FROM users--
+The page will now show a line containing every username and password combined together, separated by a tilde.
+Find the line for the administrator account, split it at the tilde to get the real password.
+Go to the login page and log in using administrator and that extracted password.
+Once logged in successfully, the lab is marked as solved.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, for sending web requests, and the re library, for searching and replacing text
+using patterns.
+
+A session is created so cookies stay consistent across every request made during the script, including the
+login step at the end.
+
+It asks for the category filter address, and from that same address it also builds the login page address, by
+replacing the word filter with login, since both pages share the same base website address.
+
+It builds the payload using a single quote, UNION SELECT, NULL for the first column, then username joined with
+password using two vertical bars and a tilde in between, then FROM users, then two dashes to comment out the
+rest of the original query.
+
+This payload is sent as the category parameter to the filter page through the session.
+
+It prints the status code, just to confirm the request went through.
+
+It cleans the response HTML the same way as the previous lab’s script, removing script and style blocks first,
+then converting all remaining tags into newlines, then removing empty lines.
+
+It then searches through all the cleaned lines, and keeps only the ones containing a tilde symbol, since that
+symbol only appears in our injected combined value, not in normal product names or prices.
+
+If no lines contain a tilde, it prints a failure message and stops the script completely.
+
+If some lines are found, it prints all of them, so you can see every username and password combination that
+was leaked, not just the administrator’s.
+
+It then specifically searches those lines for the one that starts with the word administrator followed by a
+tilde, since that is the account we actually want to log in as.
+
+If that specific line is not found, it tells you to copy one manually from the printed list, and stops.
+
+If found, it splits that line into two parts using the tilde as the dividing point, giving us the username and
+password separately, and prints them clearly.
+
+It then reuses the same CSRF token grabbing method from lab two, fetching the login page and searching its HTML
+for the hidden csrf field.
+
+It builds a login payload using the csrf token, the extracted username, and the extracted password, and submits
+it to the login page using a POST request through the same session.
+
+It then builds the home page address by removing the word login from the login page address, and requests that
+home page using the same session, so it is viewed as the logged in administrator.
+
+Finally, it checks the home page content for the sentence the lab displays when solved. If found, it prints
+success. If not, it prints a failure message suggesting the extracted credentials might be wrong.
+
+=============================
+WHY WE SPLIT ON THE TILDE SYMBOL
+
+Since username and password were joined together using a tilde in between them during the database query
+itself, that same tilde is still present in the text we get back on the page. By searching for that tilde and
+splitting the text at that exact point, we can separate the combined value back into its two original parts,
+username and password, without needing to guess where one ends and the other begins.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is the same as every earlier lab, user input is joined directly into the SQL query text
+without being checked. This time, string concatenation inside the UNION SELECT is used to work around the
+limitation of only having one text compatible column, allowing two separate pieces of data to be squeezed
+through a single column anyway.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so that user input can never change the structure of the SQL query, regardless of how
+creatively it tries to combine multiple values together.
+
+Other good practices:
+
+Restrict database account permissions so the account used by the application cannot read sensitive tables such
+as users, if it only ever needs to read product related tables.
+Avoid displaying raw query results directly on public facing pages, since this makes it much easier to notice
+when unexpected or combined values appear.
+
+=============================
+KEY POINTS TO REMEMBER
+
+When only one column accepts text, multiple values can still be extracted by combining them together into a
+single column using string concatenation.
+A separator character placed between the combined values makes it possible to split the result back into its
+original parts afterward.
+Extracting credentials through a UNION attack is often just the first step, since the real goal is frequently to
+use those credentials to log in and gain further access, as done in this lab.
