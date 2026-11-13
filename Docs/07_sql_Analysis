@@ -1,0 +1,186 @@
+==================================================
+Lab 7: Blind SQL Injection with Conditional Responses
+=======================
+WHAT THIS LAB IS ABOUT
+
+All the earlier labs had one thing in common: the result of the SQL query showed up directly on the page, either
+as product data or as an error message. This lab is different. The query result is never shown anywhere. There
+is no UNION trick that displays extra rows, and no error message that leaks anything.
+
+Instead, the only thing that changes on the page is a small, indirect clue: whether or not the text “Welcome
+back” appears. This kind of attack is called blind SQL injection, because we cannot see the data directly, we can
+only ask the database true or false questions, one at a time, and watch for a small visible difference in the
+response to tell which answer we got.
+
+Goal: without ever seeing the password directly, figure out the administrator’s password character by character,
+purely by asking yes or no questions.
+
+==============================
+WHERE THE INJECTION POINT IS
+
+This time the vulnerable input is not a URL parameter like category, it is a cookie called TrackingId. Every
+visitor gets a tracking cookie automatically, and the website uses this cookie’s value inside a SQL query behind
+the scenes, most likely to check if this visitor is a returning, recognized user. If the value matches something
+in the database, the website shows “Welcome back” somewhere on the page.
+
+Since this cookie value is used inside a query without being checked or cleaned, we can inject SQL into it, the
+same basic idea as every earlier lab, just through a different entry point.
+
+=============================
+WHAT IS A BLIND CONDITION
+
+A blind condition is a piece of SQL we attach to the existing query, written so that it only adds something true
+or false, without changing what data comes back. If the condition we add is true, the page behaves exactly as
+it would for a normal visitor, and “Welcome back” appears. If the condition is false, that message disappears.
+
+Nothing about the actual data is shown. We only learn whether our guess was right or wrong, which is just a
+single bit of information per request, yes or no.
+
+============================================
+STEP 1: CONFIRM THE INJECTION POINT WORKS
+
+Before asking anything useful, we first prove that we can control the query’s truth value at all.
+
+We send a condition we already know is true, something like: does a table called users exist, and does it have
+at least one row. If “Welcome back” appears, our injection is working and the database is treating our input as
+real SQL.
+
+We then also check if a user named administrator actually exists in that table, the same way, by asking a true
+or false question and watching for “Welcome back”.
+
+============================================
+STEP 2: FIND THE PASSWORD LENGTH
+
+Before we can find each character, we need to know how long the password actually is, otherwise we would not
+know when to stop checking positions.
+
+To do this, we repeatedly ask: is the length of the administrator’s password greater than 1, then greater than
+2, then greater than 3, and so on. Each time the answer is true (“Welcome back” shows up), we move to the next
+number. The exact moment the answer flips to false, that number tells us the real password length. For example,
+if “length greater than 20” is true but “length greater than 21” is false, the password is exactly 21 characters
+long. In this lab specifically, the real password length turns out to be a fixed number, but we discover it the
+same way regardless.
+
+============================================
+STEP 3: FIND EACH CHARACTER, ONE POSITION AT A TIME
+
+Once we know the length, we need to figure out the password’s actual characters. Since the password itself is
+invisible to us, we can only guess one character at a time, at one specific position, and ask: is the character
+at this position equal to this specific letter or digit.
+
+To do this, we use a function called SUBSTRING, which pulls out one character from a specific position in the
+password. We combine this with an equals check against a guessed character. If the guess is correct, “Welcome
+back” appears, confirming that exact character at that exact position. If wrong, it disappears, and we try the
+next possible character.
+
+We repeat this for every position in the password, trying every lowercase letter and every digit until we find
+the one that makes the condition true, before moving on to the next position.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and intercept the request carrying the TrackingId cookie using Burp Suite.
+Modify the cookie value to add a true condition, and confirm “Welcome back” still appears.
+Modify it to add a false condition, and confirm “Welcome back” disappears.
+Confirm the users table and the administrator user exist, using true or false conditions the same way.
+Test increasing password lengths until the condition becomes false, revealing the exact password length.
+Use Burp Intruder to automate testing every character at every position, using SUBSTRING and checking for
+“Welcome back” in each response.
+Once every position’s character is found, combine them into the full password, and log in manually as
+administrator using that password.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, used for sending web requests, and the string library, which gives easy access
+to a ready-made list of lowercase letters and digits, saving us from typing them out manually.
+
+It asks for the base address of the lab, and removes any trailing slash so addresses can be joined cleanly later.
+
+A session is created, and a single request is sent to the home page just to receive a genuine TrackingId cookie
+from the server, exactly as a normal visitor would get one. This original cookie value is saved, since every
+injected payload needs to be built on top of this real value to keep the rest of the query working normally.
+
+If no TrackingId cookie comes back at all, the script stops immediately, since there is nothing to inject into.
+
+A helper function called send_condition is defined. It takes any SQL condition as plain text, builds a cookie
+value using the original tracking ID, a single quote, AND, the condition wrapped in parentheses, and compares it
+against the letter a. It then sends this as the cookie and returns True or False depending on whether “Welcome
+back” shows up in the response. This function is reused for every true or false question asked throughout the
+rest of the script, instead of rewriting the same request logic repeatedly.
+
+The script first uses this helper to confirm that a basic true condition about the users table returns true,
+proving the injection point works.
+
+It then confirms that a user named administrator actually exists, using the same helper function.
+
+Next, it searches for the password length. It loops through numbers starting from 1, each time asking if the
+password length is greater than that number. As soon as one of these checks comes back false, that number is
+saved as the actual password length, and the loop stops immediately.
+
+After the length is known, the script begins the character-guessing phase. It prepares a list of all lowercase
+letters and all digits to try as possible characters.
+
+For every position in the password, from the first character to the last, it tries every character in that
+list one at a time. For each attempt, it builds a condition using SUBSTRING to extract just the character at the
+current position, and checks if it equals the character currently being tested. If “Welcome back” appears, that
+character is recorded as correct for that position, and the script immediately stops trying further characters
+for that position, moving on to the next one.
+
+If no character out of the entire list matches at some position, the script stops early and reports that nothing
+was found, since continuing further would not make sense without knowing that position’s character.
+
+Once every position has a confirmed character, they are all joined together into the final complete password,
+which is printed out at the end, along with a reminder to log in manually using the administrator username and
+this extracted password.
+
+=============================
+WHY WE USE A SEPARATE HELPER FUNCTION
+
+Since almost every step in this lab repeats the exact same action, sending a request with a modified cookie and
+checking if “Welcome back” appears, writing this as one reusable function avoids repeating the same lines of
+code over and over. Every true or false question in the entire script, regardless of what it is actually asking,
+flows through this same single function.
+
+=============================
+WHY THIS IS SLOWER THAN EARLIER LABS
+
+In earlier labs, a single well-crafted request could reveal actual data directly. Here, every single character
+of the password requires potentially testing up to thirty six different possibilities, one request at a time,
+before moving to the next character. For a password around twenty characters long, this adds up to several
+hundred individual requests just for the character-guessing phase alone, which is why blind injection is
+considerably slower than techniques where data is directly visible.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is still the same root cause as every previous lab, user-controlled input, this time coming
+from a cookie instead of a URL parameter, is joined directly into a SQL query without being checked. The
+difference here is only in how the result of that injected query becomes visible to us, through a subtle
+behavioral difference on the page instead of through directly displayed data.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so that cookie values, exactly like any other user input, can never change the
+structure or logic of a SQL query.
+
+Other good practices:
+
+Avoid exposing any observable difference in application behavior that depends on the result of a database
+query involving unsanitized input, since even a small difference like a changed greeting message can be enough
+for an attacker to extract data bit by bit.
+Apply strict validation on all input sources, not just URL parameters, since cookies, headers, and other hidden
+fields are just as capable of reaching a vulnerable query.
+
+=============================
+KEY POINTS TO REMEMBER
+
+Blind SQL injection does not show any data directly, it only reveals whether a condition is true or false through
+some small behavioral difference in the response.
+Extracting data this way requires first confirming the injection works, then finding the length of the target
+value, then testing every character at every position individually.
+This technique works on any input that reaches a SQL query, not just URL parameters, cookies and other hidden
+values are just as vulnerable if they are not properly sanitized.
+Blind injection is slower and requires far more requests than attacks where data is shown directly, but it is
+just as capable of fully extracting sensitive information given enough time.
