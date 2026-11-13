@@ -1,0 +1,135 @@
+==================================================
+Lab 5: SQL Injection UNION Attack - Retrieving Data
+from Other Tables
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab builds on everything learned so far. We already know how to find the number of columns a query returns,
+and how to find which column accepts text. Now we put both pieces of knowledge together to actually steal real
+data from a completely different table in the database, specifically the users table, which holds usernames and
+passwords.
+
+Goal: use a UNION attack to pull the username and password of a user out of the users table, and display them on
+the product page.
+
+==============================
+HOW THIS BUILDS ON EARLIER LABS
+
+In lab three, we found out exactly how many columns the original query returns.
+In lab four, we found out which of those columns can safely hold text.
+In this lab, instead of putting NULL or a random test string into those columns, we put real column names from
+another table, specifically username and password from the users table. This way, instead of just proving a
+column can hold text, we are now using it to actually display stolen data.
+
+=============================
+THE TECHNIQUE USED HERE
+
+We already know this lab’s query returns two columns, and both of them accept text, since the product title and
+the product price are both text-based fields on the page. So instead of testing column types again, we go
+straight to injecting a UNION SELECT that pulls username and password directly from the users table.
+
+======================================
+WHAT THE PAYLOAD LOOKS LIKE
+
+The category value sent is: a valid category name, followed by a single quote, then UNION SELECT, then username
+comma password, then FROM users, then two dashes.
+
+This tells the database to run two queries together: the original one that fetches products, and our own one
+that fetches username and password from the users table. Since both results have two columns, and the database
+already confirmed string columns, both sets of results are combined and shown together on the same page, as if
+the stolen username and password were just another product in the list.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and go to a product category page.
+Submit a real category name, followed by a single quote, then UNION SELECT username, password FROM users--
+If the number of columns or their types do not match, adjust based on what was learned in the earlier labs.
+Once correct, the username and password appear on the page as if they were a regular product, and the lab is
+marked as solved.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, used for sending web requests, and the re library, used for searching and
+replacing text with patterns.
+
+A session is created so cookies stay consistent across the request.
+
+It asks you to paste the category filter address, and saves it as filter_url.
+
+It sets valid_category to the text Corporate gifts, a real category name that exists in this lab, so the first
+part of the original query keeps working normally.
+
+It builds the payload using the valid category name, a single quote, UNION SELECT, username comma password, FROM
+users, and two dashes at the end to comment out the rest of the original query.
+
+This payload is placed into the category parameter and sent to the website through the session.
+
+It prints the status code of the response, just to visually confirm the request went through without a server
+error.
+
+It then takes the raw HTML of the response and removes entire script and style blocks first. These blocks
+contain CSS styling code and JavaScript code, not actual visible text, so removing them first avoids cluttering
+the output with code that was never meant to be read as content.
+
+After removing those blocks, it replaces every remaining HTML tag with a newline character. This turns the whole
+page from a wall of HTML into separate lines, since tags like the ones for headings, paragraphs, or list items
+normally separate pieces of content from each other.
+
+It then goes through every line, strips extra spaces from the start and end of each line, and completely removes
+any line that is empty or only contains whitespace. This leaves only lines that actually contain visible
+content.
+
+It prints how many lines remain, just to give a quick sense of how much output there is.
+
+Finally, it prints every cleaned line one by one, so you can scroll through and find the username and password
+sitting somewhere among the other product names and prices.
+
+=============================
+WHY WE STRIP SCRIPT AND STYLE TAGS FIRST
+
+If script and style blocks are not removed before converting tags into newlines, their raw code content (such as
+JavaScript logic or CSS rules) gets treated as if it were visible page text. This creates a lot of confusing,
+unreadable lines in the output that have nothing to do with the actual page content a visitor would see. Removing
+them first keeps the final output focused only on genuinely visible text.
+
+=============================
+WHY THIS APPROACH IS KEPT SIMPLE ON PURPOSE
+
+Earlier attempts tried to target specific HTML classes or tags, assuming the page used particular container
+names for each product. This failed because the actual class and tag names in the lab’s HTML were different
+from what was assumed. Instead of guessing the exact structure every single time, simply converting the whole
+page into clean readable text is more reliable, since it does not depend on knowing the exact HTML layout in
+advance. The tradeoff is that the output includes everything on the page, not just the stolen data, so you do
+need to glance through the lines yourself to spot the result.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is still the same as all previous labs, user input is joined directly into the SQL query
+text. This time, the UNION SELECT is not just testing column count or type, it is directly requesting real
+columns from a completely different table, and the database has no way of knowing this was not part of the
+original intended query.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so that user input can never change the structure of the SQL query, including adding
+entirely new SELECT statements through UNION.
+
+Other good practices:
+
+Restrict database account permissions so the account used by the web application cannot read tables it has no
+business accessing, such as a users table, if the application only ever needs to read a products table.
+Avoid exposing raw database query results directly into web page content without filtering what is shown.
+
+=============================
+KEY POINTS TO REMEMBER
+
+A UNION attack becomes genuinely dangerous once the attacker knows both the column count and which columns
+accept text, since both pieces of knowledge are combined to pull real data from any other table.
+The users table and its username and password columns are extremely common targets, since gaining valid
+credentials often leads to further access.
+Keeping the output simple, as plain cleaned text, is sometimes more practical than trying to target exact page
+elements, especially when the HTML structure is not known in advance.
