@@ -1,0 +1,192 @@
+Lab 08: Blind SQL Injection with Conditional Errors
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab is another form of blind SQL injection, but the signal we rely on is different from the previous lab.
+In the last lab, the page showed or hid the text “Welcome back” depending on whether our condition was true.
+In this lab, there is no such message at all. Instead, the application shows a generic error whenever the SQL
+query itself fails to run. We don’t get to see any data, and the page doesn’t behave differently for true versus
+false, except for one thing: if our injected SQL causes a database error, the server responds differently.
+
+Goal: using only the presence or absence of a database error as our signal, extract the administrator’s
+password character by character, then log in as administrator.
+
+==============================
+WHERE THE INJECTION POINT IS
+
+Just like the previous lab, the vulnerable input is the TrackingId cookie. Its value is used inside a SQL query
+behind the scenes, without being checked or cleaned, so we can inject our own SQL into it.
+
+=============================
+STEP 1: PROVE THE INJECTION POINT EXISTS AT ALL
+
+Before trying anything clever, we first confirm that adding a single quote to the cookie breaks the query and
+causes a visible error. Then, adding a second quote right after it closes the string back up properly, so the
+query becomes valid again and the error disappears. This alone proves that an unclosed quote is enough to cause
+a detectable error, which is the foundation the rest of the attack is built on.
+
+=============================
+STEP 2: CONFIRM IT IS SPECIFICALLY A SQL ERROR
+
+Just because something errors does not automatically mean it is a SQL syntax error, it could be some unrelated
+problem. To rule this out, we attempt to build something that looks like a valid SQL subquery, and see if the
+query accepts it without error.
+
+The first attempt tries a generic empty SELECT, joined into the string using double pipes, which is how text is
+concatenated together in Oracle databases. If this still errors, it suggests the database might specifically
+require every SELECT statement to name a real table, which is a known Oracle requirement. Oracle databases have
+a special placeholder table called dual, which exists purely so SELECT statements have something to reference
+even when no real table is needed. Once dual is added to the query, the error disappears, which strongly suggests
+the backend database is Oracle.
+
+To further confirm the injected text is genuinely being interpreted as SQL, we try referencing a table name that
+clearly does not exist. This causes an error again, which makes sense only if the database is actually trying to
+look up that table and failing, rather than the error being caused by something unrelated to SQL at all.
+
+=============================
+STEP 3: CONFIRM THE USERS TABLE EXISTS
+
+Once we know valid SQL syntax does not error, and that the database is Oracle, we query the known users table,
+limiting it to return only one row at a time, since returning more than one row would break the string
+concatenation structure we are relying on. If no error appears, this confirms the users table genuinely exists.
+
+=============================
+STEP 4: LEARN TO TRIGGER ERRORS CONDITIONALLY
+
+This is the main idea the entire rest of the attack depends on. Using a CASE WHEN structure, we tell the
+database: if a certain condition is true, attempt to divide the number 1 by 0, which is mathematically invalid
+and always causes an error. If the condition is false, just return an empty piece of text instead, which causes
+no error at all.
+
+By testing with a condition we already know is true, like 1 equals 1, we confirm that an error is produced. By
+testing with a condition we know is false, like 1 equals 2, we confirm no error appears. This proves we now have
+a reliable way to turn any true or false question into either an error or a normal response, entirely under our
+control.
+
+=============================
+STEP 5: CONFIRM THE ADMINISTRATOR USER EXISTS
+
+Using the same CASE WHEN structure, we now check for a row in the users table where the username equals
+administrator. If the condition evaluates as true, the divide by zero runs, and we get an error. Getting that
+error confirms the administrator account exists.
+
+=============================
+STEP 6: FIND THE PASSWORD LENGTH
+
+Still using the exact same structure, we now test the administrator’s password length, asking repeatedly if it
+is greater than 1 character, then 2, then 3, and so on. Each time the condition is true, an error is returned.
+The exact point where the error stops happening tells us the password’s real length, which the lab confirms is
+20 characters.
+
+=============================
+STEP 7: FIND EACH CHARACTER, ONE POSITION AT A TIME
+
+Once the length is known, we use the SUBSTR function to pull out one character at a specific position in the
+password, and compare it against a guessed letter or digit. If the guess is correct, the CASE WHEN condition
+becomes true, the divide by zero runs, and we get an error. If wrong, no error happens.
+
+We repeat this for every position, trying every lowercase letter and digit until the correct one is found for
+that position, then move to the next position, continuing until the full password is revealed.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and intercept the request carrying the TrackingId cookie using Burp Suite.
+Add a single quote to the cookie value, and confirm an error appears.
+Add a second quote right after it, and confirm the error disappears.
+Build a subquery using double pipes and an empty SELECT, testing with and without referencing the dual table,
+to confirm the database is Oracle and that it is genuinely interpreting the input as SQL.
+Confirm the users table exists by selecting from it with a row limit of one, with no error appearing.
+Use a CASE WHEN structure with a divide by zero to confirm that a true condition produces an error, and a false
+condition does not.
+Confirm the administrator user exists the same way.
+Test increasing password lengths until the error stops appearing, revealing the password length.
+Use Burp Intruder to automate testing every character at every position, checking which payload causes an HTTP
+500 status code instead of 200.
+Once every position’s character is found, combine them into the full password, and log in manually as
+administrator using that password.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, used for sending web requests, and the string library, for easy access to
+lowercase letters and digits.
+
+It asks for the base address of the lab, removing any trailing slash.
+
+A session is created, and a request is sent to the home page purely to receive a real TrackingId cookie from the
+server, the same way an ordinary visitor would get one. This value is saved, since every injected payload must be
+built on top of this real value to keep the query structure valid.
+
+A helper function called send_condition is defined. It takes a SQL condition as plain text, and optionally a
+specific FROM clause, since some checks need to reference a real table like users, while others only need the
+dual placeholder table. It builds the exact payload structure described in the walkthrough: the original tracking
+ID, two pipe symbols, an opening parenthesis, a SELECT CASE WHEN statement using the given condition, a divide by
+zero inside the true branch, an empty string in the false branch, the FROM clause, a closing parenthesis, two
+more pipe symbols, and a final quote to close the string cleanly. It sends this as the cookie value and returns
+True if the response comes back with an HTTP 500 status code, meaning an error occurred, or False if the
+response is a normal 200.
+
+The script first tests the condition 1 equals 1, expecting this to cause an error, and separately tests 1 equals
+2, expecting no error. Both results are printed clearly, so it is immediately obvious if the basic premise is
+working before anything else runs. If this basic check fails, the script stops immediately instead of continuing
+with checks that would not make sense otherwise.
+
+It then confirms the administrator user exists, using the same helper function but pointing the FROM clause
+directly at the users table filtered by that username.
+
+Next, it searches for the password length, looping through increasing numbers and asking each time if the
+length is greater than that number. The loop stops the moment a check comes back false, and that number becomes
+the confirmed password length.
+
+After that, it begins the character extraction phase, trying every lowercase letter and digit at each position
+in the password, using the SUBSTR function inside the condition. The first character that causes an error at a
+given position is recorded as correct, and the script moves on to the next position immediately, rather than
+continuing to test further characters that are no longer needed.
+
+Once every position has been resolved, all the found characters are joined together into the final complete
+password, which is printed at the end, along with a reminder to log in manually using the administrator username
+and this extracted password.
+
+=============================
+WHY THE PAYLOAD STRUCTURE IS DIFFERENT FROM THE PREVIOUS LAB
+
+The previous lab used a simple AND condition directly attached to the existing query, since all we needed to do
+there was make an existing true or false check affect whether “Welcome back” appeared. This lab has no such
+built-in true or false behavior to piggyback on, so we had to build our own condition entirely from scratch using
+string concatenation and a subquery, deliberately designed so that a true condition causes a completely
+unrelated error, a divide by zero, rather than relying on any existing application behavior.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is the same as every previous lab, a cookie value is joined directly into a SQL query without
+being checked or cleaned. The difference here is purely in how we detect the result, through a deliberately
+caused database error instead of a visible page difference or directly displayed data.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so that cookie values, like any other user input, can never change the structure or
+logic of a SQL query, regardless of what error-triggering logic an attacker might try to insert.
+
+Other good practices:
+
+Avoid showing different error behavior, such as different status codes or error messages, based on the result of
+a query built from unsanitized input, since even something as simple as an error appearing or not appearing can
+be enough to extract data one bit at a time.
+Use generic, non-descriptive error pages for all unexpected server errors, so that no internal detail about the
+database or query structure is ever revealed through error responses.
+
+=============================
+KEY POINTS TO REMEMBER
+
+When there is no visible difference in page content, a deliberately triggered database error, such as a divide
+by zero, can be used instead as the true or false signal.
+Different databases have different quirks, such as Oracle requiring every SELECT statement to name a real table,
+and recognizing these quirks can help confirm exactly which database is being used.
+The CASE WHEN structure is a powerful tool for turning any true or false condition into something detectable,
+whether that is an error, a delay, or some other observable difference.
+This technique still requires confirming the injection point step by step, finding the length first, then testing
+every character at every position, exactly like the previous blind injection method, just with a different way of
+reading the answer.
