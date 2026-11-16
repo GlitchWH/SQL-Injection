@@ -1,57 +1,184 @@
-import requests
+==================================================
+Lab 18: SQL Injection with Filter Bypass via XML
+Encoding
+=======================
+WHAT THIS LAB IS ABOUT
 
-base_url = input("Enter the base URL of the lab (e.g. https://xxxx.web-security-academy.net): ").rstrip("/")
-stock_url = base_url + "/product/stock"
+This lab combines two ideas we’ve already used separately: the single-column concatenation trick from lab 6,
+and a brand new problem, a filter (commonly called a WAF, short for Web Application Firewall) that actively
+blocks requests containing obvious SQL injection patterns. The twist here is that our input isn’t sent as a
+normal URL parameter or cookie, it’s sent inside an XML document. XML has its own way of representing characters
+called entities, and we can use this to sneak our payload past the filter without the filter ever recognizing it
+as SQL.
 
-headers = {"Content-Type": "application/xml"}
+Goal: find a way to write a UNION-based SQL injection payload that a filter won’t recognize and block, then use
+it to steal usernames and passwords.
 
+==============================
+WHERE THE INJECTION POINT IS
 
-def to_hex_entities(text):
-    """
-    Converts every character into its XML hex entity form, e.g. "'" becomes
-    "&#x27;". The XML parser decodes these back into real characters before
-    handing the value to the SQL query, so a WAF that only scans for raw
-    SQL keywords or quotes never sees them, only the harmless-looking
-    encoded entities.
-    """
-    return "".join(f"&#x{ord(char):x};" for char in text)
+This lab has a “Check stock” feature on each product page. When clicked, it sends a request containing two
+values, a productId and a storeId, formatted as XML rather than as typical URL parameters. The storeId value is
+the one that ends up inside a SQL query without being checked or cleaned, which we can confirm by replacing it
+with a simple math expression. If the application responds based on the result of that expression instead of
+treating it as plain text, this proves the value is actually being evaluated by the database.
 
+=============================
+STEP 1: CONFIRM THE INJECTION POINT WORKS
 
-def build_xml(product_id, store_id_payload):
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<stockCheck>
-    <productId>{product_id}</productId>
-    <storeId>{store_id_payload}</storeId>
-</stockCheck>"""
+Before trying anything related to SQL injection specifically, we first confirm that storeId is being evaluated
+rather than just compared as plain text. Submitting something like one plus one instead of a real store ID, and
+seeing the application respond as though we had submitted the number two, confirms the value is being calculated
+and used directly, not just matched exactly against stored text.
 
-print("[*] Step 1: Confirming storeId is evaluated (1+1 should behave like storeId=2)...")
-test_xml = build_xml(1, "1+1")
-response = requests.post(stock_url, data=test_xml, headers=headers)
-print(f"    Status: {response.status_code}  Response: {response.text.strip()}")
+=============================
+STEP 2: HIT THE FILTER
 
-print("\n[*] Step 2: Sending a raw UNION SELECT (expected to be blocked)...")
-blocked_xml = build_xml(1, "1 UNION SELECT NULL")
-response = requests.post(stock_url, data=blocked_xml, headers=headers)
-print(f"    Status: {response.status_code}  Response: {response.text.strip()[:200]}")
+Knowing the column-counting trick from earlier labs, we try submitting a UNION SELECT with a single NULL value.
+Normally, this is a harmless, standard first step. However, this time the request gets blocked entirely, with
+the application flagging it as a potential attack. This tells us a filter is actively watching for suspicious
+patterns like the word UNION or SELECT, and rejecting any request containing them outright, regardless of
+whether the request would have actually caused any harm.
 
-print("\n[*] Step 3: Sending the same payload, hex-encoded, to bypass the WAF...")
-raw_payload = "1 UNION SELECT NULL"
-encoded_payload = to_hex_entities(raw_payload)
-bypass_xml = build_xml(1, encoded_payload)
-response = requests.post(stock_url, data=bypass_xml, headers=headers)
-print(f"    Status: {response.status_code}  Response: {response.text.strip()}")
+=============================
+STEP 3: UNDERSTAND XML ENTITIES
 
-print("\n[*] Step 4: Leaking username~password pairs via single-column UNION...")
-leak_payload = "1 UNION SELECT username || '~' || password FROM users"
-encoded_leak_payload = to_hex_entities(leak_payload)
-leak_xml = build_xml(1, encoded_leak_payload)
-response = requests.post(stock_url, data=leak_xml, headers=headers)
-print(f"    Status: {response.status_code}")
-print(f"    Response: {response.text.strip()}")
+Since our data is being sent as XML, we can take advantage of a feature built into the XML format itself. XML
+allows any character to be written not just as its normal plain form, but also using something called a
+character entity, which represents that exact same character using a numeric code instead. A hex entity looks
+like an ampersand, followed by a hash symbol, an x, a hexadecimal number representing the character, and a
+semicolon at the end. For example, the letter U can be written using its numeric code instead of the plain
+letter.
 
-if "~" in response.text:
-    print(f"\n[+] Leaked credential line: {response.text.strip()}")
-else:
-    print("\n==> No '~' found in response. Check productId value or payload structure.")
+Crucially, the XML parser that reads and processes our request will automatically convert these entities back
+into their real characters before passing the value along further into the application. So if we encode our
+entire payload this way, the actual text that leaves our side looks nothing like SQL at all, it looks like a
+jumble of entity codes, but by the time it reaches the database, it has already been decoded back into the real
+SQL text we intended.
 
-print("\n[*] Go to the login page and log in manually using the leaked administrator credentials.")
+=============================
+STEP 4: BYPASS THE FILTER
+
+Because the filter is likely scanning the raw request for literal suspicious text such as the word UNION or a
+stray quote character, encoding our entire payload into hex entities means none of those literal patterns ever
+appear in what the filter actually sees. The filter only inspects the request as it is sent, before the XML
+parser has had a chance to decode anything, so it has no way of recognizing our intent. Once decoded internally
+by the application, the real SQL injection payload reappears fully intact and reaches the database as normal.
+
+Resending the same column-counting attempt, but now with every character hex-encoded, goes through without being
+blocked, confirming the filter has been successfully bypassed.
+
+=============================
+STEP 5: FIND THE REAL COLUMN COUNT
+
+Continuing the investigation, we discover that this particular query only returns a single column. Attempting
+to return more than one column causes the application to show a zero units response instead, indicating an
+error behind the scenes. This is different from some earlier labs where multiple columns were available, so
+here, absolutely everything we want to extract has to fit into just that one single column.
+
+=============================
+STEP 6: COMBINE USERNAME AND PASSWORD INTO ONE COLUMN
+
+Since there is only one usable column, we rely on the exact same string concatenation idea used in lab six.
+Username and password are joined together using the double pipe symbol, with a tilde character placed in
+between them as a separator, so the combined result can later be split back into its two original parts once we
+read it from the response.
+
+This entire concatenated SQL expression, same as before, gets converted into hex entities before being placed
+inside the storeId field in the XML body, ensuring the filter never sees anything it would recognize as an
+attack.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and use Burp Suite to intercept the stock check request.
+Confirm the storeId value is evaluated, by submitting a simple math expression instead of a real store ID.
+Attempt a basic UNION SELECT NULL payload, and observe that it gets blocked by the filter.
+Convert the same payload into hex entities, and resend it, confirming that it is no longer blocked.
+Discover that only one column is returned, since attempting more results in a zero units response.
+Build a payload selecting username concatenated with password, separated by a tilde, from the users table,
+hex-encode this entire payload, and place it inside the storeId field.
+Send the request, and read the leaked username and password pair, separated by the tilde, directly from the
+response.
+Log in manually as administrator using the leaked password to solve the lab.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, used for sending web requests.
+
+It asks for the base address of the lab, and builds the full stock-check endpoint address by appending the
+specific path this lab uses for that feature.
+
+A helper function called to_hex_entities is defined. It goes through every single character in a given piece of
+text, one at a time, and converts each one into its hex entity form, joining all these converted pieces back
+together into one long string. This is what actually performs the XML-based obfuscation trick, turning an
+entire SQL payload into a form the filter cannot recognize.
+
+Another helper function called build_xml is defined, which takes a product ID and whatever storeId payload we
+want to test, and returns a complete, properly formatted XML document string, matching the exact structure this
+lab’s stock-check feature expects.
+
+The script then performs four separate steps, one after another, each sending a request and printing the result,
+so progress can be checked at every stage rather than only seeing the final outcome.
+
+The first step sends one plus one as the storeId value, to confirm the application evaluates it as a
+calculation rather than treating it as plain text, matching the very first manual confirmation step.
+
+The second step sends a plain, unencoded UNION SELECT NULL payload, expecting this one to be blocked by the
+filter, purely to visually confirm the filter is active before trying to bypass it.
+
+The third step takes that exact same UNION SELECT NULL payload, but passes it through the hex entity conversion
+function first, then sends it. This should now succeed without being blocked, confirming the filter bypass
+works.
+
+The fourth and final step builds the real data-stealing payload, selecting username concatenated with password,
+separated by a tilde, from the users table, converts this entire string into hex entities, and sends it as the
+storeId value. The response is then checked for the presence of the tilde character, since that symbol only
+appears in our own injected, combined value, not in any normal stock response. If found, the leaked line
+containing the username and password is printed directly.
+
+=============================
+WHY THE FILTER CANNOT STOP THIS
+
+A WAF or input filter in situations like this usually works by scanning the raw request content for specific
+known dangerous patterns, such as the literal word UNION, the word SELECT, or an unescaped quote character. By
+encoding our entire payload using XML hex entities, none of these literal patterns exist anywhere in the request
+the filter actually inspects. The dangerous content only reappears after the XML parser decodes the entities,
+which happens later in the application’s own processing, completely outside of what the filter is able to see or
+control.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying SQL injection flaw is the same as every previous lab, unsanitized input reaching a SQL query.
+What makes this lab different is the presence of a filter meant to catch and block exactly this kind of attack,
+combined with the fact that XML, as a data format, has a built-in, standard way of representing any character
+indirectly. This combination creates a gap between what the filter can see and what the application actually
+ends up processing.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so that no amount of clever encoding or obfuscation can ever change the structure of
+the SQL query, since the database itself never interprets user input as code regardless of its form.
+
+Other good practices:
+
+Avoid relying only on filters that scan for specific known bad patterns, since encoding tricks like this one are
+a well known and common way to slip past this kind of surface-level defense.
+Any filtering or validation should be applied only after the input has been fully decoded into its final,
+real form, not before, so that entities, encodings, or other obfuscation techniques cannot be used to hide
+malicious content from the filter.
+
+=============================
+KEY POINTS TO REMEMBER
+
+A filter that only scans raw, undecoded input can be bypassed using any encoding scheme the underlying format
+supports, since the real content only becomes visible after decoding happens.
+XML entities are a legitimate, standard part of the XML format, not a hack or exploit by themselves, which is
+exactly why a filter cannot simply ban their use outright without breaking normal XML functionality.
+Filters and blocklists that look for specific bad patterns are often weaker than they appear, since they only
+catch attacks in the exact form the filter’s author anticipated.
+The safest defense remains preventing the SQL injection at its root, through parameterized queries, rather than
+trying to catch and block malicious-looking input after the fact.
