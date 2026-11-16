@@ -1,0 +1,129 @@
+==================================================
+Lab 7: SQL Injection - Querying the Database Type
+and Version on Oracle
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab is about using a UNION attack, the same technique learned earlier, not to steal application data this
+time, but to find out basic information about the database itself, specifically which database software it is
+running and what version. Knowing this is often one of the first things an attacker figures out, since different
+databases have different features, functions, and table names, so the rest of the attack strategy depends on
+knowing exactly what kind of database is being dealt with.
+
+Goal: use a UNION attack to make the database reveal its own version information, directly on the product page.
+
+==============================
+WHY KNOWING THE DATABASE TYPE MATTERS
+
+Different databases are not all the same under the hood. Oracle, MySQL, PostgreSQL, and Microsoft SQL Server
+each have their own particular quirks, special tables, and built-in functions. A command or trick that works
+perfectly on one database might cause an error on another. Because of this, attackers usually try to figure out
+the exact database type and version early on, so they know exactly which syntax and techniques will actually
+work for the rest of the attack.
+
+=============================
+STEP 1: CONFIRM THE COLUMN COUNT AND TEXT COMPATIBILITY
+
+Just like earlier UNION attack labs, before injecting anything meaningful, we first confirm how many columns the
+original query returns, and which of those columns can safely hold text. In this lab, the query happens to
+return exactly two columns, and both of them are confirmed to accept text, by submitting a UNION SELECT with two
+plain text values, each wrapped in quotes, and checking that both values are accepted and displayed without any
+error.
+
+Since this is an Oracle database, every SELECT statement must explicitly reference a table name, even when
+selecting values that do not come from a real table. This lab uses the Oracle placeholder table called dual for
+this purpose, exactly as in the walkthrough from the error-based lab earlier.
+
+=============================
+STEP 2: QUERY THE DATABASE VERSION
+
+Oracle databases keep a special built-in view called v$version, which exists purely to store information about
+the database software and its version number. This is not something the application developers created, it is
+a standard part of Oracle itself, and it almost always contains a column called BANNER, which holds a readable
+line of text describing the exact version running.
+
+By replacing our earlier placeholder text values with a selection from this BANNER column instead, and keeping
+the second column as NULL since only one piece of information is actually needed here, we can make the database
+print its own version string directly into the page, in the same spot where a normal product would have
+appeared.
+
+======================================
+WHAT THE PAYLOAD LOOKS LIKE
+
+The category value sent is: a single quote, then UNION SELECT, then BANNER, comma, NULL, then FROM v$version,
+then two dashes.
+
+This tells the database to combine the original product results with a second query that pulls the version
+banner text from Oracle’s built-in version view, placing that text into the first column, since that is the
+column being used to display a product’s name or title on the page.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and go to a product category page, intercepting the request with Burp Suite.
+Confirm the query returns two text-compatible columns, using a UNION SELECT with two placeholder text values
+selected from dual.
+Replace the first placeholder text with BANNER, and change the table being selected from to v$version instead
+of dual.
+Send the request, and observe the Oracle database version string displayed directly on the page.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, used for sending web requests.
+
+A session is created so cookies remain consistent, in case any later step needs them.
+
+It asks you to paste the category filter address, and saves it as filter_url.
+
+It builds the first payload, used purely to confirm column count and text compatibility, consisting of a single
+quote, UNION SELECT, two placeholder text values in quotes separated by a comma, FROM dual, and two dashes. This
+is sent as the category parameter, and the response is printed so you can visually confirm both placeholder
+values show up correctly on the page without error.
+
+It then builds the real payload used to leak the database version: a single quote, UNION SELECT, the word
+BANNER, comma, NULL, FROM v$version, and two dashes. This is sent the same way, as the category parameter.
+
+The response to this second request is searched for and printed, since the Oracle version string will appear
+somewhere in the visible page content, in the same position where a normal product name would usually be.
+
+=============================
+WHY NULL IS USED FOR THE SECOND COLUMN
+
+Since we only care about pulling out the version string, which fits inside one single column, the second column
+has nothing useful to put into it. NULL is used again here, exactly like in the earlier column-counting lab,
+simply as a safe placeholder that fits into any column type without causing an error.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is the same as every other lab, user input reaches a SQL query without being checked or
+cleaned. The new idea introduced here is that a UNION attack is not limited to pulling data from an application’s
+own tables, it can also be used to pull information from special, built-in system views that every database of
+a certain type automatically provides, such as Oracle’s v$version.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so that user input can never be interpreted as SQL structure, including attempts to
+query built-in system information.
+
+Other good practices:
+
+Restrict database account permissions so the account used by the web application has no reason or ability to
+query system views like v$version, since an application account rarely needs this kind of access for its normal
+operation.
+Keep database software updated, since knowing the exact version can sometimes also reveal known vulnerabilities
+specific to that version, which attackers may exploit next.
+
+=============================
+KEY POINTS TO REMEMBER
+
+Knowing the exact database type and version is often one of the very first steps in a real SQL injection attack,
+since it determines which specific functions, tables, and techniques will actually work.
+Oracle requires every SELECT statement to reference a real or placeholder table, unlike some other databases
+which allow a SELECT without naming any table at all.
+Built-in system views like v$version exist automatically in Oracle databases and can be queried the exact same
+way as any other table, once a UNION attack is possible.
+This technique builds directly on the column counting and text compatibility skills learned in the very first
+UNION attack labs.
