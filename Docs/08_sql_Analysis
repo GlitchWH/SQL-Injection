@@ -1,0 +1,128 @@
+==================================================
+Lab 8: SQL Injection Attack - Querying the Database
+Type and Version on MySQL and Microsoft
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab is almost identical in purpose to lab 7, finding out what database software is running behind the
+scenes using a UNION attack, except this time the target database is MySQL or Microsoft SQL Server instead of
+Oracle. Different databases provide this information in different ways, so the exact syntax used here is
+different from the Oracle version, even though the underlying idea is exactly the same.
+
+Goal: use a UNION attack to make the database reveal its own version string, directly on the product page.
+
+==============================
+WHY THE SYNTAX DIFFERS FROM ORACLE
+
+In lab 7, we had to select from a special Oracle-only view called v$version, and every SELECT statement needed
+to explicitly name a table, even a placeholder one like dual. MySQL and Microsoft SQL Server work differently.
+Both of them support a special built-in system variable, written as two at symbols followed by the word version,
+which directly holds the version string without needing to be selected from any table at all. This is simpler
+than the Oracle approach, since there is no FROM clause required whatsoever.
+
+Also, instead of using two dashes as a comment, this lab’s payload uses a single hash symbol instead. Both MySQL
+and some other databases support the hash symbol as a way to comment out the rest of a line, functioning the
+exact same way as the double dash trick used everywhere else.
+
+=============================
+STEP 1: CONFIRM COLUMN COUNT AND TEXT COMPATIBILITY
+
+Exactly like every previous UNION attack lab, we start by confirming the query returns two columns, both of
+which accept text, using two simple placeholder values wrapped in quotes. This step does not change at all
+between different database types, since it is really just testing the structure of the original query, not
+anything specific to MySQL or Oracle.
+
+=============================
+STEP 2: QUERY THE VERSION VARIABLE
+
+Instead of selecting from a named view like in Oracle, we simply select the built-in version variable directly,
+placing it into the first column, and leaving the second column as NULL since only one piece of information is
+needed. Because this variable does not come from any real table, no FROM clause is required at all, the database
+already knows what it refers to automatically.
+
+======================================
+WHAT THE PAYLOAD LOOKS LIKE
+
+The category value sent is: a single quote, then UNION SELECT, then two at symbols followed by the word version,
+comma, NULL, then a hash symbol at the end to comment out anything remaining in the original query.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and go to a product category page, intercepting the request with Burp Suite.
+Confirm the query returns two text-compatible columns, using a UNION SELECT with two placeholder text values.
+Replace the placeholders with the built-in version variable in the first column and NULL in the second, ending
+the payload with a hash symbol instead of two dashes.
+Send the request, and observe the database version string displayed directly on the page.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library for sending web requests, and the re library for searching text using patterns.
+
+It asks for the category filter address.
+
+It builds the first payload, used purely to confirm column count and text compatibility, consisting of a single
+quote, UNION SELECT, two placeholder text values separated by a comma, and a hash symbol at the end. This is sent
+as the category parameter, and a short snippet of the response is printed, so both placeholder values can be
+visually confirmed as showing up correctly without error.
+
+It then builds the real version-leaking payload: a single quote, UNION SELECT, the built-in version variable,
+comma, NULL, and a hash symbol. This is sent the same way, as the category parameter.
+
+The response HTML is cleaned the same way as earlier labs, removing script and style blocks first, since these
+can contain unrelated version-shaped text such as file paths or library references, then converting all
+remaining tags into newlines, then removing blank lines, leaving only genuinely visible text to search through.
+
+A pattern is used to search for anything shaped like a version number, specifically digits, a dot, more digits,
+another dot, and more digits, optionally followed by extra characters like a dash and more version details. Every
+cleaned line matching this shape is printed, so the real database version can be identified among the results,
+even if more than one line happens to match the pattern.
+
+If nothing matches at all, every cleaned line is printed instead, so the actual response can still be reviewed
+manually to locate the version string by eye.
+
+=============================
+WHY WE STRIP SCRIPT AND STYLE TAGS AND CLEAN THE HTML FIRST
+
+An earlier attempt at this script searched the entire raw, unprocessed response text for anything containing a
+period, which accidentally matched all kinds of irrelevant things, such as file paths and stylesheet references
+that happened to contain dots as well, like resource file names. This produced incorrect, misleading results that
+looked like a version number but were not. Cleaning the HTML first, removing script and style blocks and
+converting tags into newlines, ensures the search is only performed over genuinely visible page content, which
+is a much more reliable place to find the real injected version string.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is the same as every other lab, user input reaches a SQL query without being checked or
+cleaned. The specific technique shown here, querying a built-in system variable instead of a named view, simply
+reflects how MySQL and Microsoft SQL Server choose to expose this particular piece of information differently
+from how Oracle does it.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so user input can never be interpreted as SQL structure, including attempts to read
+built-in system variables.
+
+Other good practices:
+
+Restrict database account permissions where possible, even though built-in system variables like this one are
+often readable by any account without special permission, so this particular piece of information may be
+difficult to fully hide.
+Keep database software updated, since an attacker who learns the exact version may also be able to look up known
+vulnerabilities specific to that version.
+
+=============================
+KEY POINTS TO REMEMBER
+
+Different databases expose their version information in different ways, Oracle through a special view requiring
+a FROM clause, MySQL and Microsoft SQL Server through a simple built-in variable requiring no FROM clause at all.
+The hash symbol works as a comment character in MySQL, serving the same purpose as the double dash used in other
+databases.
+When searching a page’s response for leaked data, cleaning the HTML first and searching only visible text is far
+more reliable than searching the raw, unprocessed response, since raw HTML often contains misleading, unrelated
+text that can look like real data at first glance.
+Despite the differences in exact syntax, the core technique remains a standard UNION attack, built on the same
+column-counting and text-compatibility checks used throughout every other UNION based lab.
