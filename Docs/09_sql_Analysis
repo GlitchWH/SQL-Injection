@@ -1,0 +1,151 @@
+==================================================
+Lab 9: SQL Injection Attack - Listing the Database
+Contents on Non-Oracle Databases
+=======================
+WHAT THIS LAB IS ABOUT
+
+Up until now, whenever we wanted to steal a username and password, we already knew exactly which table and
+column names to use, because the lab walkthroughs simply told us the table was called users and the columns
+were called username and password. In a real attack, nobody hands you this information directly. This lab
+teaches how to discover the actual table and column names yourself, starting from nothing, using only the
+database’s own built-in list of everything it contains.
+
+Goal: discover the real name of the table holding user credentials, discover which columns in it hold the
+username and password, and then use that information to steal every user’s login details.
+
+==============================
+WHAT IS INFORMATION_SCHEMA
+
+Almost every major database, except Oracle, which has its own different system for this, comes with a
+special built-in section called information_schema. This is not something application developers created, it
+exists automatically as part of the database software itself, and its entire purpose is to describe the
+database’s own structure. It contains tables that list other tables, and tables that list the columns inside
+those tables. In other words, it is a kind of built-in map of the whole database, and critically, we can query
+it using completely normal SELECT statements, the exact same way we would query any other table.
+
+=============================
+STEP 1: CONFIRM COLUMN COUNT AND TEXT COMPATIBILITY
+
+As always before starting any UNION attack, we confirm the query returns two columns, and that both accept
+text, using two simple placeholder text values. This step is identical to earlier UNION labs, and is just there
+to make sure our later, more meaningful payloads will actually fit correctly into the existing query structure.
+
+=============================
+STEP 2: LIST ALL TABLE NAMES
+
+Instead of querying some normal business-related table, we query information_schema.tables, a special table
+that exists purely to list the name of every single table that currently exists in the entire database. This
+query has absolutely nothing to do with the actual website or its products, it is only describing the
+database’s own internal structure.
+
+Running this through our UNION attack causes every table name in the whole database to show up, one at a time,
+in place of where a product name would normally appear. Scrolling through this long list, we look specifically
+for a table name that sounds like it might hold user accounts, such as one starting with the word users,
+usually followed by some random extra characters added by the lab to make it harder to guess in advance.
+
+=============================
+STEP 3: LIST THE COLUMNS INSIDE THAT TABLE
+
+Once we have found the real table name, we need to know what columns exist inside it, since we cannot guess
+whether it uses column names like username and password, or something slightly different.
+
+To find this out, we query a second special table, information_schema.columns, which lists every column that
+exists inside every table in the database. By adding a condition that filters this list down to only the
+specific table name we just found, we get back only the column names belonging to that one table, instead of
+being overwhelmed with every column from every table in the whole database.
+
+Scrolling through this shorter, filtered list, we look for column names that sound like they would hold a
+username and a password, again possibly with some random extra characters attached to their names.
+
+=============================
+STEP 4: RETRIEVE THE ACTUAL DATA
+
+Now that we know the real table name and the real column names, we can finally query the actual data we were
+after from the very beginning. This step is no different in spirit from the very first UNION data-theft lab, we
+are simply selecting two real column names from a real table name, except this time, we had to work to discover
+what those real names actually were, instead of being told them directly.
+
+The result is the same as before, every username paired with its corresponding password, displayed directly on
+the page, with the administrator’s row somewhere among them.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and intercept the category filter request using Burp Suite.
+Confirm two text-compatible columns using a simple UNION SELECT with two placeholder values.
+Query information_schema.tables to list every table name in the database, and identify the one likely to hold
+user credentials.
+Query information_schema.columns, filtered to that specific table name, to list its column names, and identify
+the ones likely to hold a username and a password.
+Query the real table using the real column names you just discovered, to retrieve every username and password
+pair.
+Find the administrator’s row in the results, and use that password to log in manually.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+Since the real table and column names are randomly generated for each individual lab instance, there is no way
+to know them in advance or guess them automatically. Because of this, the task is broken into three small,
+separate steps, run one at a time, rather than one single automatic script, since a human needs to actually read
+the output at each stage before the next step can be built correctly.
+
+The first small script sends a UNION SELECT querying information_schema.tables, asking for every table name
+that exists in the database. It cleans up the HTML response the same way as earlier labs, stripping tags and
+blank lines, then prints every remaining line so the real table name can be spotted by scanning through the
+output.
+
+The second small script asks for the table name just discovered, and sends a UNION SELECT querying
+information_schema.columns, filtered down to only that one table using a WHERE condition. It prints the cleaned
+results the same way, so the real username and password column names can be identified from the shorter,
+filtered list.
+
+The third and final small script asks for the table name and both column names discovered so far, builds a
+UNION SELECT using those exact real names, and sends it. The cleaned response is printed, showing every
+username and password pair stored in that table, including the administrator’s.
+
+=============================
+WHY THIS IS SPLIT INTO SEPARATE STEPS INSTEAD OF ONE SCRIPT
+
+Earlier labs could be fully automated end to end because every detail needed, such as the table name users or
+the column names username and password, was already known in advance from the lab’s own description. Here, the
+real names only exist inside this one specific lab instance, randomly generated, and the only way to learn them
+is to actually look at what the database itself reports back. A script cannot guess a random name it was never
+told, so a human has to read the first query’s results, decide which name looks correct, and manually carry that
+real name forward into the next query.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is the same root cause as every previous lab, user input reaches a SQL query without being
+checked or cleaned. What makes this lab different is realizing that a UNION attack does not have to be limited
+to querying the application’s own normal tables, it can just as easily query the database’s own internal
+description of itself, which exists specifically so that administrators and tools can inspect the database’s
+structure, but which an attacker can abuse the exact same way.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so user input can never change the structure of a SQL query, regardless of whether
+the attacker is targeting application data or the database’s own internal structure information.
+
+Other good practices:
+
+Restrict database account permissions so the account used by the web application has no reason to read from
+information_schema at all, since a normal application almost never needs to look up its own table structure
+during regular operation.
+Avoid displaying raw, unfiltered query results directly on public pages, since this is exactly what allows an
+attacker to read back anything a UNION attack manages to pull out, whether it is real data or structural
+information about the database itself.
+
+=============================
+KEY POINTS TO REMEMBER
+
+Almost every database other than Oracle includes a built-in information_schema, which can be queried using
+completely normal SELECT statements to discover every table and column that exists.
+Real-world table and column names are rarely as obvious as users, username, and password, and attackers often
+need to discover these names themselves before they can steal anything meaningful.
+This discovery process usually happens in stages, first finding table names, then narrowing down to column
+names within a specific table, and only then actually retrieving the real data.
+Even though this takes more steps than labs where everything is already known, the fundamental technique is
+still just a UNION attack, applied to the database’s own self-describing structure instead of its normal
+application data.
