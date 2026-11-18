@@ -1,0 +1,134 @@
+==================================================
+Lab 10: SQL Injection Attack - Listing the Database
+Contents on Oracle
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab is the Oracle version of lab 9. The goal is exactly the same, discover the real name of the table
+holding user credentials, discover which columns hold the username and password, then steal that data, but
+Oracle does not have information_schema the way MySQL, PostgreSQL, and most other databases do. Oracle has its
+own separate system views that serve the exact same purpose, with different names and slightly different
+syntax rules.
+
+Goal: discover the real table and column names holding user credentials on an Oracle database, then use that
+information to steal every user’s login details.
+
+==============================
+WHY ORACLE NEEDS DIFFERENT SYSTEM VIEWS
+
+Oracle organizes its built-in, self-describing structure information differently from most other databases. Instead
+of information_schema, Oracle provides views with names like all_tables, which lists every table name that exists,
+and all_tab_columns, which lists every column name belonging to every table. These serve exactly the same purpose
+as their information_schema equivalents, just under different names, since this is simply how Oracle chose to
+expose this information.
+
+Oracle also keeps its strict rule requiring every SELECT statement to name a table in its FROM clause, even when
+querying these special system views, or when selecting a harmless placeholder value that needs no real table at
+all, in which case the special dual table is used instead.
+
+=============================
+STEP 1: CONFIRM COLUMN COUNT AND TEXT COMPATIBILITY
+
+As always, before anything else, we confirm the query returns two columns, both accepting text, using two
+placeholder text values. Since Oracle requires a table name even here, this placeholder check is written selecting
+from dual, unlike the equivalent check on MySQL or PostgreSQL, which needs no FROM clause at all.
+
+=============================
+STEP 2: LIST ALL TABLE NAMES
+
+Instead of querying information_schema.tables like in lab 9, we query Oracle’s own all_tables view, which lists
+the name of every table currently existing in the database. Running this through the UNION attack causes every
+table name to appear one at a time where a product name would normally be, and we scroll through this list
+looking for a table name resembling something related to users or credentials, typically with some random extra
+characters appended by the lab.
+
+=============================
+STEP 3: LIST THE COLUMNS INSIDE THAT TABLE
+
+Once the real table name is found, we query Oracle’s all_tab_columns view instead of information_schema.columns,
+filtering the results down to only the specific table name just discovered using a WHERE condition. This reveals
+every column name belonging specifically to that one table, and we look through this shorter list for column
+names resembling a username and a password.
+
+=============================
+STEP 4: RETRIEVE THE ACTUAL DATA
+
+With the real table name and real column names now known, we run a normal UNION SELECT using those exact names,
+selecting the username-like column into the first position and the password-like column into the second. This
+causes every username and password pair stored in that table to appear directly on the page, exactly as it did
+once the real names were discovered in lab 9, just reached through Oracle’s differently named system views.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and intercept the category filter request using Burp Suite.
+Confirm two text-compatible columns using a UNION SELECT with two placeholder values selected from dual.
+Query all_tables to list every table name in the database, and identify the one likely to hold user credentials.
+Query all_tab_columns, filtered to that specific table name, to list its column names, and identify the ones
+likely to hold a username and a password.
+Query the real table using the real column names just discovered, to retrieve every username and password pair.
+Find the administrator’s row in the results, and use that password to log in manually.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+Just like lab 9, the real table and column names are randomly generated for each lab instance, so there is no
+way to predict them in advance. The task is split into three small separate scripts, run one after another, with
+a human reading the output at each stage before continuing to the next step.
+
+The first script sends a UNION SELECT querying all_tables, asking for every table name in the database. It
+cleans the HTML response the same way as earlier labs, removing script and style blocks first, then converting
+tags into newlines and removing blank lines, then prints every remaining line so the real users table name can
+be spotted.
+
+The second script asks for the table name just discovered, then sends a UNION SELECT querying all_tab_columns,
+filtered using a WHERE condition to that one table name. It prints the cleaned results the same way, so the real
+username and password column names can be identified from this shorter, filtered list.
+
+The third script asks for the table name and both column names discovered, builds a UNION SELECT using those
+exact real names, and sends it. The cleaned response is printed, showing every username and password pair stored
+in that table, including the administrator’s.
+
+=============================
+WHY THE FIRST SCRIPT NEEDS FROM DUAL BUT THE OTHERS DON’T
+
+The very first check, testing column count and text compatibility, selects two placeholder values that do not
+come from any real table, so Oracle’s rule requiring a named table forces us to reference dual just to satisfy
+that syntax requirement. The later scripts, querying all_tables, all_tab_columns, and finally the real users
+table, are all already selecting from genuinely real tables, so no dual reference is needed in those cases, since
+a real table name is already present in each of those queries.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw is the same root cause as every previous lab, user input reaches a SQL query without being
+checked or cleaned. What makes this lab distinct from lab 9 is purely which specific system views are available
+to query, Oracle’s all_tables and all_tab_columns instead of the information_schema views used elsewhere, along
+with Oracle’s stricter requirement that every SELECT statement must always name a table.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so user input can never change the structure of a SQL query, regardless of whether the
+attacker is targeting application data or Oracle’s own built-in system views describing the database structure.
+
+Other good practices:
+
+Restrict database account permissions so the account used by the web application has no reason to query
+all_tables or all_tab_columns, since a normal application almost never needs to inspect its own structure during
+regular operation.
+Avoid displaying raw, unfiltered query results directly on public pages, since this is exactly what allows an
+attacker to read back structural information just as easily as real application data.
+
+=============================
+KEY POINTS TO REMEMBER
+
+Oracle organizes its built-in structural information differently from most other databases, using views like
+all_tables and all_tab_columns instead of information_schema.
+Oracle’s strict requirement that every SELECT statement name a table applies even to querying these system
+views, though the dual placeholder is only needed when selecting values unrelated to any real table.
+The overall discovery process, tables first, then columns within a specific table, then the real data itself,
+remains identical in logic to the equivalent non-Oracle lab, only the specific view names and minor syntax
+differ.
+Even advanced-sounding techniques like querying a database’s own structural metadata are still fundamentally
+just UNION attacks, applied to a different set of tables than the application’s normal data.
