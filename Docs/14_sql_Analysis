@@ -1,0 +1,126 @@
+==================================================
+Lab 14: Blind SQL Injection with Time Delays
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab introduces a third way of detecting whether our SQL injection is working, completely different from
+anything used before. In lab 11, we watched for a specific piece of text appearing or disappearing. In lab 12
+and 13, we watched for errors or error messages. Here, there is no visible text difference, and no error at all.
+Instead, we measure how long the server takes to respond. If we can make the database deliberately pause for a
+noticeable amount of time, and we can control exactly when that pause happens, we have found a new, purely
+timing-based way to confirm our injection works.
+
+Goal: inject a payload that causes the database to pause for a fixed number of seconds, and confirm this by
+measuring how long the response actually takes.
+
+==============================
+WHERE THE INJECTION POINT IS
+
+Just like labs 11, 12, and 13, the vulnerable input here is the TrackingId cookie. Its value is placed directly
+into a SQL query without being checked or cleaned, which lets us inject our own SQL through it.
+
+=============================
+WHAT IS A TIME-BASED ATTACK
+
+A time-based attack relies on a simple idea: if we can make the database execute something that takes a
+specific, predictable amount of time, such as pausing for exactly ten seconds, we can confirm this happened
+purely by measuring elapsed time on our end, without needing to look at the response content at all. This
+becomes especially useful in situations where the application gives absolutely no other outward sign of whether
+our injected condition was true or false.
+
+=============================
+THE FUNCTION USED HERE: PG_SLEEP
+
+PostgreSQL databases include a built-in function that does exactly one thing, pause query execution for a given
+number of seconds, then continue as normal. By calling this function with the number ten, we are asking the
+database to deliberately wait ten full seconds before returning any results at all.
+
+Since our injected SQL becomes part of the overall query that runs before the page can finish loading, forcing
+this pause means the entire page takes however many extra seconds we specified to load, which we can observe
+directly as a real, measurable delay on our side.
+
+======================================
+WHAT THE PAYLOAD LOOKS LIKE
+
+The cookie value sent is: the original tracking ID value, followed by a single quote, then two vertical bar
+symbols, then pg_sleep with the number ten inside parentheses, then two dashes at the end.
+
+The single quote closes the original string value early, the double pipes concatenate our sleep function’s
+result onto the end of that string, matching the same concatenation syntax used earlier in lab 6 for joining
+username and password together. The two dashes then comment out anything that would normally follow, keeping
+the rest of the query syntactically valid.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and intercept a request containing the TrackingId cookie using Burp Suite.
+Modify the cookie value by appending a single quote, two vertical bars, pg_sleep with ten inside parentheses,
+and two dashes at the end.
+Submit the request and observe that the application visibly takes about ten extra seconds to respond, confirming
+the injection successfully controls execution timing.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library for sending web requests, and the time library, which lets us measure exactly
+how long something takes to run in Python.
+
+It asks for the base address of the lab.
+
+A session is created, and a request is sent to the home page purely to obtain a genuine TrackingId cookie from
+the server, the same approach used in the earlier blind injection labs. This original value is saved, since the
+injected payload needs to be built on top of it to keep the rest of the query intact.
+
+The full payload is built using the original tracking ID, a single quote, two vertical bars, pg_sleep with ten
+inside parentheses, and two dashes at the end, exactly matching the manual steps.
+
+Before sending the request, the current time is recorded using time.time(), which returns the current moment as
+a number. The request is then sent using the same session, with the cookie set to our payload. Immediately after
+the response comes back, the current time is recorded again, and the difference between these two recorded times
+gives us the total elapsed time the request actually took, measured in seconds.
+
+This elapsed time is printed, rounded to two decimal places for readability.
+
+Finally, the script checks if the elapsed time was at least nine seconds, leaving a small buffer below the full
+ten seconds to account for minor natural variation in network speed or server response time. If the delay meets
+this threshold, it prints a success message confirming the injection worked. If not, it prints a failure message
+suggesting the cookie name or payload syntax might need checking.
+
+=============================
+WHY WE MEASURE TIME INSTEAD OF CHECKING THE RESPONSE TEXT
+
+Unlike every previous lab, this one gives no usable clue inside the response content itself, no special message
+appears, and no error is shown, regardless of whether our condition is true or false. The only observable
+difference happens in how long the entire request takes to complete, which is why we specifically track time
+before and after sending the request, rather than inspecting anything about what the response actually contains.
+
+=============================
+WHY A SMALL BUFFER IS USED INSTEAD OF CHECKING FOR EXACTLY TEN SECONDS
+
+Network requests are never perfectly precise, there is always some small amount of natural delay added by the
+network itself, the server’s normal processing time, and other minor factors unrelated to our injected sleep
+function. Checking for a delay of at least nine seconds, rather than requiring the delay to be exactly ten
+seconds, accounts for this natural variation while still being clearly long enough to distinguish from a normal,
+fast response that takes a fraction of a second.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw remains the same root cause as every earlier blind injection lab, user input, specifically
+a cookie value here, reaches a SQL query without being checked or cleaned. The particular function being abused,
+pg_sleep, exists as a completely normal, legitimate part of PostgreSQL, meant for things like testing or
+intentionally delaying processes, but it becomes a powerful attack tool once an attacker can control when and
+whether it gets called.
+
+=============================
+KEY POINTS TO REMEMBER
+
+A time-based attack works by deliberately causing a measurable delay in the database’s response, then confirming
+success purely through elapsed time, without needing any visible change in the page’s content.
+PostgreSQL’s pg_sleep function is a simple, direct way to cause this kind of controlled delay, though other
+databases provide their own equivalent sleep or delay functions under different names.
+This technique becomes especially valuable when an application gives absolutely no other observable difference
+between a true and false condition, since timing becomes the only remaining signal available to an attacker.
+This lab lays the foundation for a more advanced version, where instead of always sleeping for a fixed amount of
+time, the sleep is made conditional on a true or false guess, turning this timing trick into a full data
+extraction technique, the same way conditional responses and conditional errors were used in earlier labs.
