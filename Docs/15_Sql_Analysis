@@ -1,0 +1,172 @@
+Lab 15: Blind SQL Injection with Time Delays and
+Information Retrieval
+=======================
+WHAT THIS LAB IS ABOUT
+
+This lab builds directly on lab 14. In lab 14, we only proved that we could make the database pause for a fixed
+ten seconds, with no actual data extraction involved. This lab takes that same idea and turns it into a full
+data-stealing technique, the same way conditional responses and conditional errors were eventually used to
+extract real passwords in earlier labs. Instead of always sleeping for ten seconds no matter what, the sleep now
+only happens when a specific condition we choose turns out to be true.
+
+Goal: using only response timing as a signal, extract the administrator’s password character by character, then
+log in as administrator.
+
+==============================
+WHERE THE INJECTION POINT IS
+
+Same as lab 14, the vulnerable input is the TrackingId cookie, used inside a SQL query behind the scenes without
+being checked or cleaned.
+
+=============================
+THE KEY IDEA: MAKING THE DELAY CONDITIONAL
+
+In lab 14, the payload always called pg_sleep with ten, regardless of anything else, just to prove the
+injection point could control timing at all. This lab wraps that same function inside a CASE WHEN structure,
+exactly like the conditional error lab did with the divide by zero trick. Now, pg_sleep with ten only runs when
+our chosen condition is true. If the condition is false, pg_sleep with zero runs instead, which causes no
+meaningful delay at all, so the response comes back almost immediately.
+
+This means a slow response becomes our “true” signal, and a fast response becomes our “false” signal, giving us
+a reliable way to ask the database any true or false question we want, purely through timing.
+
+=============================
+STEP 1: CONFIRM A TRUE CONDITION CAUSES A DELAY
+
+We first test with a condition we already know is true, one equals one, wrapped inside the CASE WHEN structure.
+Sending this causes the application to take about ten seconds to respond, confirming the conditional sleep logic
+works correctly.
+
+=============================
+STEP 2: CONFIRM A FALSE CONDITION CAUSES NO DELAY
+
+Next, we test with a condition we know is false, one equals two. This time the application responds almost
+immediately, confirming that only a true condition triggers the delay, and a false one does not.
+
+=============================
+STEP 3: CONFIRM THE ADMINISTRATOR USER EXISTS
+
+Using the same structure, we now check if a row exists where the username equals administrator, this time
+selecting from the real users table instead of nowhere in particular. A ten second delay confirms this user
+exists.
+
+=============================
+STEP 4: FIND THE PASSWORD LENGTH
+
+Still using the same structure, we repeatedly ask if the administrator’s password length is greater than one,
+then two, then three, and so on, each time checking whether the response is slow or fast. The exact point where
+the delay disappears tells us the real password length, confirmed in this lab as twenty characters.
+
+=============================
+STEP 5: FIND EACH CHARACTER, ONE POSITION AT A TIME
+
+Once the length is known, we use SUBSTRING to test one character at a specific position against a guessed
+letter or digit, combined with the administrator username check using AND. If the guess is correct, the delay
+happens. If wrong, the response stays fast. We repeat this for every position, trying every lowercase letter and
+digit until the correct one is found, then move to the next position.
+
+============================
+HOW TO SOLVE IT MANUALLY
+
+Open the lab and intercept a request containing the TrackingId cookie using Burp Suite.
+Test a CASE WHEN structure with a true condition, confirming a ten second delay occurs.
+Test the same structure with a false condition, confirming no delay occurs.
+Confirm the administrator user exists using the same structure, selecting from the users table.
+Test increasing password lengths until the delay disappears, revealing the password length.
+Use Burp Intruder, limited to one request at a time for reliable timing, to test every character at every
+position using SUBSTRING, watching the response time column for values around ten thousand milliseconds.
+Once every position’s character is found, combine them into the full password, and log in manually as
+administrator using that password.
+
+=========================
+WHAT THIS SCRIPT DOES
+
+It imports the requests library, the time library for measuring elapsed time, the string library for easy
+access to lowercase letters and digits, and a function called quote from the urllib.parse library, used for
+manually encoding special characters.
+
+It asks for the base address of the lab, and a session is created, then a request is sent to the home page to
+obtain a genuine TrackingId cookie, saved for building every later payload on top of it.
+
+A helper function called send_condition is defined. It builds the full payload using the original tracking ID, a
+single quote, a semicolon, a SELECT CASE WHEN statement using the given condition, pg_sleep with ten in the true
+branch, pg_sleep with zero in the false branch, FROM users, and two dashes at the end.
+
+Since a semicolon has special meaning inside a cookie header, separating one cookie from another, this payload
+is manually encoded using the quote function before being sent, converting every special character including
+the semicolon into its safe, percent-encoded form, and the result is sent as a raw Cookie header instead of
+using the normal cookies dictionary, which does not perform this kind of encoding automatically.
+
+The function records the time just before sending the request, sends it, then records the time again right
+after the response arrives, and returns whether the total elapsed time was nine seconds or more, allowing a
+small buffer below the full ten seconds for natural network variation.
+
+The script first confirms the administrator user exists using this helper function, stopping with an error if
+this basic check fails.
+
+It then searches for the password length, looping through increasing numbers and checking each time if the
+length is greater than that number, stopping the moment a check comes back fast instead of slow, and saving that
+number as the real password length.
+
+It then begins the character extraction phase, trying every lowercase letter and digit at each position in the
+password, combined with the administrator username check, and recording whichever character causes the ten
+second delay as correct for that position, before moving on to the next position.
+
+Once every position has been resolved, all the found characters are joined into the final complete password,
+printed at the end, along with a reminder to log in manually using this password.
+
+=============================
+WHY THE COOKIE NEEDED MANUAL ENCODING THIS TIME
+
+Unlike the earlier blind injection labs, this payload needed to include a semicolon as part of the actual SQL
+syntax itself, since the attack works by stacking a brand new SELECT statement after the original query, rather
+than just attaching an extra condition using AND. A semicolon inside a normal Cookie header is a reserved
+character that separates multiple cookies from each other, so sending it as-is inside a cookie value would
+either get cut off or misinterpreted by the server, rather than reaching the database as part of our intended
+SQL text. Manually percent-encoding the entire payload before sending it as a raw header avoids this problem,
+ensuring the semicolon survives intact all the way through to the vulnerable query.
+
+=============================
+WHY THIS TECHNIQUE CAN BE LESS RELIABLE THAN OTHER BLIND METHODS
+
+Timing-based detection depends on measuring real-world elapsed time, which can be affected by things completely
+unrelated to our injected condition, such as temporary network slowness, server load, or other minor delays.
+This means there is a small chance of occasionally getting a false reading at some position, which can require
+re-testing a position if the final extracted password turns out to be incorrect, something that did happen
+during this lab’s extraction and required a second attempt before the correct password was found.
+
+=============================
+WHY THIS HAPPENS
+
+The underlying flaw remains the same root cause as every earlier blind injection lab, a cookie value reaching a
+SQL query without being checked or cleaned. The specific technique here combines two earlier ideas together, the
+CASE WHEN conditional structure from the error-based lab, and the pg_sleep timing function from the previous
+lab, to create a fully controllable, purely time-based signal for extracting real data.
+
+=============================
+HOW TO PREVENT THIS
+
+Use parameterized queries so that cookie values can never change the structure or logic of a SQL query,
+regardless of whether the attacker is trying to trigger a visible difference, an error, or a timing delay.
+
+Other good practices:
+
+Restrict or disable unnecessary database functions like pg_sleep for the account used by the web application,
+since a normal application almost never has a legitimate reason to deliberately pause its own queries.
+Monitor for unusually slow or repeated requests from the same source, since a time-based blind injection attack
+typically requires sending a very large number of requests over a noticeably longer period compared to normal
+application usage.
+
+=============================
+KEY POINTS TO REMEMBER
+
+A conditional sleep function turns timing itself into a reliable true or false signal, useful when no other
+observable difference exists in the application’s response.
+Special characters required by certain SQL syntax, such as a semicolon used to stack a new statement, may need
+to be manually encoded when placed inside cookie headers, since cookies do not always get encoded automatically
+the way URL parameters do.
+Timing-based techniques can occasionally produce unreliable results due to natural variation in network and
+server response times, so a wrong result during extraction does not necessarily mean the underlying logic is
+flawed, it may simply need to be re-attempted.
+This lab represents the most advanced form of blind SQL injection covered in this series, combining conditional
+logic, string concatenation, and timing-based detection, all stacked together into a single working technique.
