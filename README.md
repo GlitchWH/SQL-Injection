@@ -18,7 +18,7 @@ Each lab in this repo has its own folder containing:
 | 5 | SQL injection UNION attack, retrieving data from other tables | ✅ Solved |
 | 6 | SQL injection UNION attack, retrieving multiple values in a single column | ✅ Solved|
 | 7 | SQL injection attack, querying the database type and version on Oracle | ✅ Solved |
-| 8 | SQL injection attack, querying the database type and version on MySQL and Microsoft | ⬜ Not started |
+| 8 | SQL injection attack, querying the database type and version on MySQL and Microsoft | ✅ Solved |
 | 9 | SQL injection attack, listing the database contents on non-Oracle databases | ⬜ Not started |
 | 10 | SQL injection attack, listing the database contents on Oracle | ⬜ Not started |
 | 11 | Blind SQL injection with conditional responses | ⬜ Not started |
