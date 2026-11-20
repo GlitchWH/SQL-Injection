@@ -19,10 +19,10 @@ Each lab in this repo has its own folder containing:
 | 6 | SQL injection UNION attack, retrieving multiple values in a single column | ✅ Solved|
 | 7 | SQL injection attack, querying the database type and version on Oracle | ✅ Solved |
 | 8 | SQL injection attack, querying the database type and version on MySQL and Microsoft | ✅ Solved |
-| 9 | SQL injection attack, listing the database contents on non-Oracle databases | ⬜ Not started |
-| 10 | SQL injection attack, listing the database contents on Oracle | ⬜ Not started |
-| 11 | Blind SQL injection with conditional responses | ⬜ Not started |
-| 12 | Blind SQL injection with conditional errors | ⬜ Not started |
+| 9 | SQL injection attack, listing the database contents on non-Oracle databases | ✅ Solved |
+| 10 | SQL injection attack, listing the database contents on Oracle | ✅ Solved |
+| 11 | Blind SQL injection with conditional responses | ✅ Solved |
+| 12 | Blind SQL injection with conditional errors | ✅ Solved |
 | 13 | Blind SQL injection with time delays | ⬜ Not started |
 | 14 | Blind SQL injection with time delays and information retrieval | ⬜ Not started |
 | 15 | Blind SQL injection with out-of-band interaction | ⬜ Not started |
