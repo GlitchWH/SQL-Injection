@@ -27,9 +27,8 @@ Each lab in this repo has its own folder containing:
 | 14 | Blind SQL injection with time delays and information retrieval | ✅ Solved |
 | 15 | Blind SQL injection with out-of-band interaction | ✅ Solved |
 | 16 | Blind SQL injection with out-of-band data exfiltration | ✅ Solved|
-| 17 | SQL injection with filter bypass via XML encoding | ⬜ Not started |
+| 17 | SQL injection with filter bypass via XML encoding | ✅ Solved |
 
-*(Table will be updated as I progress through the course.)*
 
 ## Disclaimer
 These scripts are for educational purposes only and are intended to be used
